@@ -1,0 +1,3 @@
+_target_: phijax.training.TensorBoardLogger
+# Event files are isolated below the current Hydra run directory.
+save_dir: ${paths.output_dir}/tensorboard

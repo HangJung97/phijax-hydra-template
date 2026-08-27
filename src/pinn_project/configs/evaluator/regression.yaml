@@ -1,0 +1,4 @@
+# Aggregate evaluator for any artifact containing `flat_prediction` and `flat_target`.
+_target_: phijax.evaluation.RegressionEvaluator
+prediction_path: ${predictions}
+output_dir: ${output_dir}

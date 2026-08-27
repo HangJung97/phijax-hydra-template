@@ -1,0 +1,27 @@
+# Native JAX trainer defaults. These values describe execution policy rather than model physics.
+_target_: phijax.training.Trainer
+# Maximum optimizer updates performed by one `fit` call.
+max_steps: 10000
+# `auto` uses JAX's default backend; explicit choices are `cpu`, `gpu`, and `tpu`.
+accelerator: auto
+# Positive device count, a list of backend-local indices, or `auto` for every matching visible device.
+devices: 1
+# One of `64-true`, `32-true`, `16-true`, `bf16-true`, `16-mixed`, or `bf16-mixed`.
+precision: 32-true
+# JAX dot and convolution arithmetic override: `default`, `high`, `highest`, or `null` to preserve external settings.
+matmul_precision: null
+# Floating batch and coordinate-derivative dtype; `null` follows the precision policy's output dtype.
+derivative_dtype: null
+# Dynamic loss-scaling start value used only by `16-mixed` precision.
+initial_loss_scale: 32768.0
+# Consecutive finite FP16 updates required before increasing the dynamic loss scale.
+loss_scale_growth_interval: 2000
+# Records the caller's reproducibility policy; random operations still require explicit seeded keys.
+deterministic: true
+# Host logging and metric-transfer interval. This avoids synchronizing the accelerator on every update.
+log_every_n_steps: 10
+compilation_cache:
+  # Enable JAX's persistent compilation cache before devices and compiled steps are constructed.
+  enabled: false
+  # Cache files are local generated artifacts and are ignored by Git.
+  directory: ${paths.root_dir}/.jax_cache

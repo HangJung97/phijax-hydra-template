@@ -1,0 +1,18 @@
+# Human-readable policy metadata recorded with the composed experiment.
+name: ntk
+method: exact
+factory:
+  _target_: phijax.balancers.ExactNTKBalancer
+  # Positive floor protecting division by a near-zero mean diagonal kernel value.
+  eps: 1.0e-10
+  # Previous-weight contribution in `[0, 1)` for exponential smoothing.
+  moving_average_coefficient: 0.9
+update:
+  # Recompute exact diagonal-NTK statistics at this host-scheduled cadence.
+  every_n_steps: 1000
+  # Independently sampled rows per named objective batch used for each NTK refresh.
+  kernel_size: 300
+  # `null` uses a full-sample `vmap`; use a positive integer for memory-bounded chunking.
+  kernel_chunk_size: null
+  # Keep all initial weights at one until the first positive multiple of `every_n_steps`.
+  skip_first_step: true

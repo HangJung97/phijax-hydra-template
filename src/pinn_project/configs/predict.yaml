@@ -1,0 +1,32 @@
+# Standalone checkpoint-prediction composition. Select the same experiment used to train the checkpoint.
+defaults:
+  - _self_
+  - optional application: null
+  - optional data: null
+  - optional model: null
+  # Prediction callbacks are isolated from training callbacks by default.
+  - callbacks: predict
+  - logger: null
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+  - optional experiment: null
+  - optional local: default
+
+# Rebuilds the full-state Orbax restore template deterministically; prediction does not build training sources or steps.
+seed: 12345
+# Required Orbax checkpoint-root directory. Hydra reports a missing mandatory value when omitted.
+ckpt_path: ???
+# Restore a specific committed step, or the latest step when `null`.
+ckpt_step: null
+# Directory receiving the compressed prediction artifact and optional MATLAB sidecar.
+output_dir: ${paths.output_dir}/predictions
+# Suffix-free filename stem within `output_dir`; defaults to the selected DataModule name.
+save_file_name: ${oc.select:data.name,predictions}
+# An experiment overrides this to `false`; `true` only validates composition.
+bootstrap_only: true
+# Names the Hydra output subtree below `logs/`.
+task_name: predict
+# Searchable experiment labels forwarded when an external logger is explicitly enabled for prediction.
+tags: []

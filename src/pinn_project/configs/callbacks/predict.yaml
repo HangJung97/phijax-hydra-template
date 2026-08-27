@@ -1,0 +1,5 @@
+# Compose callbacks used only by standalone or post-training prediction.
+defaults:
+  - rich_progress_bar
+  - prediction_writer
+  - _self_

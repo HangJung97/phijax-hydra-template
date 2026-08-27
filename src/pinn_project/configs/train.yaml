@@ -1,0 +1,39 @@
+# Main training composition. Later defaults override earlier values, so an experiment can replace bootstrap choices.
+defaults:
+  - _self_
+  # Application, data, and model stay unset until an experiment or command-line override selects them.
+  - optional application: null
+  - optional data: null
+  - optional model: null
+  # Host-side lifecycle services; individual callbacks use `enabled` flags.
+  - callbacks: default
+  # No external experiment logger by default. Select with `logger=csv`, `tensorboard`, or `wandb`.
+  - logger: null
+  - trainer: default
+  - paths: default
+  - extras: default
+  - hydra: default
+  # Experiment configs compose a complete runnable application and intentionally load near the end.
+  - optional experiment: null
+  # Ignored machine-specific overrides load last when `local/default.yaml` exists.
+  - optional local: default
+
+# Root seed for model initialization, sampling, balancer updates, and training PRNG state. Set `null` to draw and log a
+# random unsigned 32-bit seed before constructing the experiment.
+seed: 12345
+# Names the Hydra output subtree below `logs/`; experiments normally override it.
+task_name: phijax
+# Searchable experiment labels forwarded to compatible loggers such as W&B; experiments should override this list.
+tags: []
+# Validate and print the composed configuration without constructing training components.
+bootstrap_only: true
+# Predict from the final in-memory state after fitting or a graceful `Ctrl+C`. The Trainer asks the DataModule for an
+# optional prediction source; `SIGTERM` stops the complete run without starting prediction.
+predict: false
+
+# Leave `ckpt_path` unset for a fresh run. Supplying a checkpoint root resumes complete training state by default;
+# set `weights_only=true` to initialize a fresh optimizer, balancer, RNG, and step from pretrained model weights.
+ckpt_path: null
+# Restore this exact checkpoint step; `null` selects the latest committed step below `ckpt_path`.
+ckpt_step: null
+weights_only: false

@@ -1,0 +1,5 @@
+_target_: phijax.training.CSVLogger
+# Directory created for the append-only metric table.
+save_dir: ${paths.output_dir}
+# CSV file containing an explicit `step` column and dynamically discovered metric columns.
+filename: metrics.csv

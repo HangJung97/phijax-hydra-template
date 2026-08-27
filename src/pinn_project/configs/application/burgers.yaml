@@ -1,0 +1,6 @@
+# Stable application identifier used for module naming and experiment metadata.
+name: burgers
+description: One-dimensional periodic viscous Burgers initial-value problem.
+# Input columns and network outputs in their exact array order.
+coordinate_names: [t, x]
+output_names: [u]

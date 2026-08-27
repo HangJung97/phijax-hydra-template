@@ -1,0 +1,18 @@
+model_checkpoint:
+  # Save full functional state for exact resumption or weights-only transfer.
+  enabled: true
+  _target_: phijax.callbacks.ModelCheckpoint
+  # Periodic save cadence; use `null` to disable periodic saves while retaining `save_last`.
+  every_n_steps: 5000
+  # Persist the terminal state when it was not already saved at the same step.
+  save_last: true
+  # Preserve the last valid state after exceptions, `Ctrl+C`, or `SIGTERM`.
+  save_on_exception: true
+  checkpoint_io:
+    _target_: phijax.training.OrbaxCheckpointIO
+    # Each child directory is keyed by the committed integer training step.
+    directory: ${paths.output_dir}/checkpoints
+    # Retain the most recent checkpoints; `null` retains every committed step.
+    max_to_keep: 3
+    # Submit saves in the background; trainer shutdown waits for pending writes.
+    enable_async_checkpointing: true

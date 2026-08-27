@@ -1,0 +1,14 @@
+# Human-readable policy metadata recorded with the composed experiment.
+name: grad_norm
+method: grad_norm
+factory:
+  _target_: phijax.balancers.GradNormBalancer
+  # Relative denominator regularizer applied to small per-loss gradient norms.
+  eps: 1.0e-5
+  # Previous-weight contribution in `[0, 1)` for exponential smoothing.
+  moving_average_coefficient: 0.9
+update:
+  # Recompute loss-gradient norms from the current training batch at this host-scheduled cadence.
+  every_n_steps: 1000
+  # Keep all initial weights at one until the first positive multiple of `every_n_steps`.
+  skip_first_step: true

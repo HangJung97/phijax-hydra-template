@@ -1,0 +1,12 @@
+prediction_writer:
+  # Save the final concatenated host prediction after the prediction lifecycle completes.
+  enabled: true
+  _target_: phijax.callbacks.PredictionWriter
+  # The prediction entrypoint defines the destination directory and filename before callback instantiation.
+  output_dir: ${oc.select:output_dir,null}
+  save_file_name: ${oc.select:save_file_name,${oc.select:data.name,predictions}}
+  # Optionally write a MATLAB sidecar and translate generic output names for downstream tools.
+  save_mat: false
+  mat_field_names: ${oc.select:application.mat_field_names,null}
+  # Prevent multiple distributed processes from writing the same artifact.
+  rank_zero_only: true

@@ -1,0 +1,13 @@
+rich_model_summary:
+  # Print an NNX model table once before the first optimizer update.
+  enabled: true
+  _target_: phijax.callbacks.RichModelSummary
+  # Maximum displayed module nesting; `-1` includes every level.
+  max_depth: -1
+  # Fixed Rich console width used to lay out summary columns.
+  console_width: 120
+  # Operation estimates add tracing work and are disabled by default.
+  compute_flops: false
+  compute_vjp_flops: false
+  # Avoid duplicate summaries in distributed jobs.
+  rank_zero_only: true

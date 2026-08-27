@@ -1,0 +1,12 @@
+early_stopping:
+  # Disabled by default because PINN convergence criteria are application-dependent.
+  enabled: false
+  _target_: phijax.callbacks.EarlyStopping
+  # Exact scalar metric name produced by the module/training step.
+  monitor: train/loss
+  # Number of non-improving observations tolerated before requesting a clean stop.
+  patience: 1000
+  # `min` treats lower values as improvements; use `max` for increasing metrics.
+  mode: min
+  # Absolute improvement required to reset patience.
+  min_delta: 0.0
