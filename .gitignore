@@ -32,7 +32,6 @@ wheels/
 .pytest_cache/
 .ruff_cache/
 htmlcov/
-site/
 .coverage
 .coverage.*
 nosetests.xml
@@ -45,10 +44,8 @@ coverage.xml
 *.tar
 *.tar.gz
 *.orbax-checkpoint/
-/data/*
-!/data/.gitkeep
-/logs/*
-!/logs/.gitkeep
+/data/
+/logs/
 /outputs/
 .jax_cache/
 
