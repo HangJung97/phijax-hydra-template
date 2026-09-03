@@ -1,0 +1,15 @@
+# NumPy-only prediction evaluation; it does not instantiate JAX training components.
+defaults:
+  - _self_
+  - evaluator: regression
+  - paths: default
+  - extras: default
+  - hydra: default
+  - optional local: default
+
+# Required `.npz` artifact produced by `phijax-predict` or training with `predict=true`.
+predictions: ???
+# Optional destination. `null` writes to a `results/` directory beside the prediction artifact.
+output_dir: null
+# Names the Hydra output subtree below `logs/`.
+task_name: evaluate_predictions

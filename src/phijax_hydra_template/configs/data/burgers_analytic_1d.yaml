@@ -1,0 +1,20 @@
+# Application-owned lifecycle for a lightweight analytic Burgers dataset without reference prediction targets.
+_target_: phijax_hydra_template.applications.burgers.BurgersDataModule
+name: burgers_analytic_1d
+# A null path selects direct analytic pool construction instead of a stored artifact.
+data_path: null
+seed: ${seed}
+# Uniform coordinates supervising `u(t_min, x) = -sin(pi x)`.
+initial_size: 256
+# Use `fixed` for a reusable candidate pool or `uniform` for fresh domain coordinates at every optimizer step.
+pde_sampling: fixed
+# Finite candidate count used only by `fixed` PDE sampling.
+pde_size: 16384
+# Dense `(time, space)` prediction shape.
+predict_shape: [100, 256]
+time_bounds: [0.0, 1.0]
+space_bounds: [-1.0, 1.0]
+batch_size:
+  initial: all
+  pde: 4096
+  predict: 4096

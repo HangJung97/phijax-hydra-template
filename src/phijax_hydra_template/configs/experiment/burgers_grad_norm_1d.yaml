@@ -1,0 +1,32 @@
+# @package _global_
+
+# A reproducible experiment overrides every group required by the root training config.
+defaults:
+  - override /application: burgers
+  - override /data: burgers_1d
+  - override /model: burgers_pinn_1d
+  - override /model/objective: burgers_1d
+  - override /model/balancer: grad_norm
+  - override /model/scheduler: warmup_exp_decay
+  - override /callbacks: burgers
+  - _self_
+
+# Stable run-family name used below `logs/` and as experiment metadata.
+task_name: burgers_grad_norm_1d
+# Searchable labels forwarded to experiment loggers such as W&B.
+tags: [burgers, grad_norm]
+# Root seed shared by data construction and all explicit JAX key splits.
+seed: 42
+predict: true
+
+trainer:
+  # Reference optimization length and host metric cadence.
+  max_steps: 5000
+  log_every_n_steps: 100
+  # Prefer the best available JAX backend while using a single device from the trainer defaults.
+  accelerator: auto
+  # Keep parameters, forward arithmetic, derivatives, and losses in float32.
+  precision: 32-true
+  # Use JAX's highest dot-product precision to reduce rounding differences in the dense network.
+  matmul_precision: highest
+  derivative_dtype: float32

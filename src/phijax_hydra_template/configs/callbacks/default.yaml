@@ -1,0 +1,7 @@
+# Compose the standard training callbacks. Callback presence means that it is active.
+defaults:
+  - lr_monitor
+  - rich_model_summary
+  - rich_progress_bar
+  - model_checkpoint
+  - _self_

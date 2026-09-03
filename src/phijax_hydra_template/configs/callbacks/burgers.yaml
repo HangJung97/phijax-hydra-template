@@ -1,0 +1,19 @@
+# Reference callback policy for the complete Burgers experiment.
+defaults:
+  - lr_monitor
+  - rich_model_summary
+  - rich_progress_bar
+  - model_checkpoint
+  - prediction_writer
+  - _self_
+
+model_checkpoint:
+  # Persist ten evenly spaced periodic states during the reference run.
+  every_n_steps: 1000
+  checkpoint_io:
+    # Retain only the two most recent committed checkpoints to bound disk usage.
+    max_to_keep: 2
+
+prediction_writer:
+  output_dir: ${paths.output_dir}/predictions
+  save_file_name: ${oc.select:data.name,predictions}

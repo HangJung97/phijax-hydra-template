@@ -1,0 +1,5 @@
+# Optional entrypoint utilities.
+# Suppress Python warnings for a quieter run. Keep disabled while developing or debugging.
+ignore_warnings: false
+# Render the fully composed Hydra configuration with Rich and save `config_tree.log` in the run directory.
+print_config: true

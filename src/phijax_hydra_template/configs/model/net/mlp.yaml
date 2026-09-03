@@ -1,0 +1,46 @@
+# Factory returns a pure application, explicit NNX state, and optional summary.
+_target_: phijax.models.build_mlp
+# Physical coordinate width, predicted field width, and hidden-layer widths are required from the parent model config.
+input_dim: ???
+output_dim: ???
+hidden: ???
+# Hidden activation name or importable callable supported by Hydra instantiation.
+activation: silu
+# Optional keyword arguments bound to every hidden activation.
+activation_kwargs: null
+# Optional final activation; `null` leaves physical outputs unconstrained.
+output_activation: null
+output_activation_kwargs: null
+# Optional unique semantic name for each scalar output; length must equal `output_dim`.
+output_names: null
+# Hidden dropout probability in `[0, 1)`; stochastic application requires an explicit dropout key.
+dropout: 0.0
+# Dense-kernel initializer: `kaiming_normal`, `xavier_uniform`, `trunc_normal`, a callable, or `null`.
+initialization: xavier_uniform
+initialization_kwargs: null
+# Build one independent scalar network per output instead of one shared multi-output network.
+one_mlp_per_output: false
+# NNX weight normalization and random weight factorization are mutually exclusive.
+weight_norm: false
+weight_factorization: false
+weight_factorization_kwargs:
+  # Mean and standard deviation of the factorized layer's sampled log scale.
+  mean: 0.5
+  std: 0.1
+  # Learn an additive bias in every factorized dense layer.
+  use_bias: true
+# Replace configured coordinate axes by fixed cosine/sine pairs before learned embeddings.
+periodic_features: false
+# Expected keys are `axes` and matching nonzero angular `frequencies`.
+periodic_features_kwargs: null
+# Project embedded coordinates through trainable Gaussian Fourier frequencies.
+fourier_features: false
+fourier_features_kwargs:
+  # Number of sampled frequencies; the resulting feature width is `2 * embed_dim`.
+  embed_dim: 32
+  # Standard deviation of the initialized Gaussian frequencies.
+  scale: 1.0
+# Normalize inputs using host-pool statistics supplied by experiment assembly.
+input_norm: false
+# Minimum standard deviation used for numerically safe normalization.
+input_norm_eps: 1.0e-8

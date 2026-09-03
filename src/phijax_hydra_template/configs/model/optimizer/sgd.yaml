@@ -1,0 +1,6 @@
+_target_: optax.sgd
+# The composed scheduler is callable and evaluated from Optax's optimizer-state counter.
+learning_rate: ${model.scheduler}
+# Set to `null` for plain SGD without a momentum accumulator.
+momentum: 0.9
+nesterov: false

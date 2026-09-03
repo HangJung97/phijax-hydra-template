@@ -1,0 +1,4 @@
+# Fixed loss weights with no periodic update step.
+_target_: phijax.balancers.StaticLossBalancer
+# Map exact objective loss names to weights; unspecified names use the default `1.0`.
+weights: {}

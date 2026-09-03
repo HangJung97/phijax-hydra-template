@@ -1,0 +1,9 @@
+_target_: optax.warmup_cosine_decay_schedule
+# Linearly warm from `init_value` to `peak_value` over `warmup_steps` optimizer updates.
+init_value: 0.0
+peak_value: 1.0e-3
+warmup_steps: 500
+# Total schedule length, including warmup; follows the configured fit length.
+decay_steps: ${trainer.max_steps}
+# Final learning rate reached by cosine decay.
+end_value: 1.0e-5

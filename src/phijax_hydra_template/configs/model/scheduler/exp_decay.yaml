@@ -1,0 +1,13 @@
+_target_: optax.exponential_decay
+# Learning rate used before exponential decay begins.
+init_value: 1.0e-3
+# Optimizer steps per multiplicative decay transition.
+transition_steps: 2000
+# Multiply the learning rate by this factor after each transition interval.
+decay_rate: 0.9
+# Delay decay by this many optimizer steps.
+transition_begin: 0
+# `false` applies continuous exponential interpolation; `true` uses discrete steps.
+staircase: false
+# Optional lower bound for the decayed learning rate.
+end_value: null

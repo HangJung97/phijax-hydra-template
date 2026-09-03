@@ -1,0 +1,12 @@
+# Add prediction artifact writing to the standard training callbacks.
+defaults:
+  - lr_monitor
+  - rich_model_summary
+  - rich_progress_bar
+  - model_checkpoint
+  - prediction_writer
+  - _self_
+
+prediction_writer:
+  output_dir: ${paths.output_dir}/predictions
+  save_file_name: ${oc.select:data.name,predictions}

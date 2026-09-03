@@ -1,0 +1,5 @@
+# Search trials report the objective without checkpoint or prediction artifacts.
+defaults:
+  - rich_model_summary
+  - rich_progress_bar
+  - _self_

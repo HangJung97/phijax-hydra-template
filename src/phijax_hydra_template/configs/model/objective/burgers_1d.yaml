@@ -1,0 +1,17 @@
+# Build one named mean-squared residual term for each equation and infer its loss names and NTK stream.
+_target_: phijax.objectives.CompositeObjective.from_equations
+equations:
+  initial:
+    _target_: phijax.equations.base_data_fidelity
+    # Build a callable awaiting `(model_apply, model_state, batch, stream)` rather than invoking it at composition.
+    _partial_: true
+    # Compare predicted output column 0 with target column 0.
+    output_indices: [0]
+    target_indices: [0]
+  pde:
+    _target_: phijax.equations.burgers_1d
+    _partial_: true
+    # Kinematic viscosity `0.01 / pi` in the configured nondimensional equation.
+    viscosity_coefficient: ${op:truediv,0.01,${math:pi}}
+    # Network output column representing the scalar solution `u`.
+    output_index: 0

@@ -1,0 +1,9 @@
+_target_: phijax.balancers.GradNormBalancer
+# Recompute loss-gradient norms from the current training batch after this many optimizer steps.
+update_every_n_steps: 1000
+# `null` performs the first update after one complete interval; use `0` to update before the first optimizer step.
+update_start_step: null
+# Relative denominator regularizer applied to small per-loss gradient norms.
+eps: 1.0e-5
+# Previous-weight contribution in `[0, 1)` for exponential smoothing.
+moving_average_coefficient: 0.9

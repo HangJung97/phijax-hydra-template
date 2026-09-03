@@ -1,0 +1,11 @@
+# Repository and run paths shared by all entrypoints.
+# `PROJECT_ROOT` is established by `pre_hydra_routine()` before Hydra composes this config.
+root_dir: ${oc.env:PROJECT_ROOT}
+# Shared location for local or generated datasets.
+data_dir: ${.root_dir}/data
+# Root of Hydra single-run and multirun output trees.
+log_dir: ${.root_dir}/logs
+# Concrete directory selected by Hydra for the current job.
+output_dir: ${hydra:runtime.output_dir}
+# Original launch directory; Hydra is configured not to change into the output directory.
+work_dir: ${hydra:runtime.cwd}

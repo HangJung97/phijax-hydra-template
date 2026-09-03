@@ -1,0 +1,9 @@
+_target_: optax.adamw
+# The composed scheduler is callable and evaluated from Optax's optimizer-state counter.
+learning_rate: ${model.scheduler}
+# First- and second-moment exponential decay coefficients.
+b1: 0.9
+b2: 0.999
+# Denominator stabilization and PyTorch-compatible decoupled parameter weight decay.
+eps: 1.0e-8
+weight_decay: 0.01

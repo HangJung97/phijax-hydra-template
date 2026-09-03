@@ -1,0 +1,3 @@
+_target_: phijax.training.ConsoleLogger
+# Python logger name receiving host scalar metrics at `trainer.log_every_n_steps`.
+name: phijax.training

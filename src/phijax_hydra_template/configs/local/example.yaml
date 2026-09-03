@@ -1,0 +1,17 @@
+# @package _global_
+
+# Copy this file to `default.yaml` for private machine-specific settings. All local configs except this example are
+# ignored by Git. Environment variables can be referenced with `${oc.env:NAME}`.
+paths:
+  # Replace repository-local data storage with a machine-specific absolute path.
+  data_dir: /path/to/local/data
+
+trainer:
+  # Prefer a visible accelerator without modifying version-controlled experiments.
+  accelerator: gpu
+
+hydra:
+  job:
+    env_set:
+      # Environment variables below are applied by Hydra before the task executes.
+      JAX_COMPILATION_CACHE_DIR: ${paths.root_dir}/.jax_cache

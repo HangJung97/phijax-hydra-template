@@ -1,0 +1,19 @@
+# Application-owned data lifecycle for the generated Burgers reference artifact.
+_target_: phijax_hydra_template.applications.burgers.BurgersDataModule
+# Filename-safe dataset identifier used by post-training prediction artifacts.
+name: burgers_1d
+# Generate this artifact on first use and retain its reference targets for evaluation.
+data_path: ${paths.data_dir}/burgers/burgers.mat
+# Root data seed controlling a finite PDE candidate pool when selected.
+seed: ${seed}
+# Use `fixed` for a reusable candidate pool or `uniform` for fresh domain coordinates at every optimizer step.
+pde_sampling: fixed
+# Finite candidate count used only by `fixed` PDE sampling.
+pde_size: 16384
+batch_size:
+  # Use every initial-condition observation in each optimizer update.
+  initial: all
+  # Fixed rows or newly generated domain coordinates evaluated per update, according to `pde_sampling`.
+  pde: 4096
+  # Fixed padded chunk size used for prediction over the complete reference grid.
+  predict: 4096
