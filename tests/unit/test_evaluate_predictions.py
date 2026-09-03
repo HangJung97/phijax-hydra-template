@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 from phijax.data import HostPool, save_prediction_artifact
 from phijax.evaluation import evaluate_prediction_artifact, regression_metrics
 
-from pinn_project.evaluate_predictions import evaluate_predictions
+from phijax_hydra_template.evaluate_predictions import evaluate_predictions
 
 
 def test_regression_metrics_match_direct_computation() -> None:

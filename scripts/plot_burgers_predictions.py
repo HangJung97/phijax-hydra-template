@@ -1,10 +1,11 @@
 import argparse
 from pathlib import Path
 
-from pinn_project.applications.burgers.plotting import (
+from phijax.evaluation import regression_metrics
+
+from phijax_hydra_template.applications.burgers.plotting import (
     load_burgers_prediction_fields,
     plot_burgers_predictions,
-    relative_l2_error,
 )
 
 
@@ -29,7 +30,7 @@ def main() -> None:
     """Plot the selected artifact and report its relative L2 error and figure path."""
     arguments = _parser().parse_args()
     reference, prediction, _, _ = load_burgers_prediction_fields(arguments.predictions)
-    error = relative_l2_error(reference, prediction)
+    error = regression_metrics(prediction, reference)["relative_l2_error"]
     output_path = plot_burgers_predictions(arguments.predictions, arguments.output, show=arguments.show)
     print(f"Relative L2 error: {error:.2e}")
     print(f"Saved Burgers comparison figure: {output_path}")

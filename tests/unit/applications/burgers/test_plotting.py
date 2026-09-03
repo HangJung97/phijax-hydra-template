@@ -3,8 +3,9 @@ from unittest.mock import MagicMock, call
 
 import numpy as np
 import pytest
+from phijax.data import HostPool, save_prediction_artifact
 
-from pinn_project.applications.burgers import plotting
+from phijax_hydra_template.applications.burgers import plotting
 
 
 def _prediction_artifact(path: Path, *, target_width: int = 1) -> tuple[np.ndarray, np.ndarray]:
@@ -22,15 +23,16 @@ def _prediction_artifact(path: Path, *, target_width: int = 1) -> tuple[np.ndarr
     inputs = np.stack(np.meshgrid(times, positions, indexing="ij"), axis=-1).reshape(-1, 2)
     reference = np.arange(6, dtype=np.float32).reshape(2, 3)
     prediction = reference + 0.5
-    targets = reference[..., None] if target_width == 1 else np.empty((2, 3, 0), dtype=np.float32)
-    np.savez_compressed(
-        path,
-        prediction=prediction[..., None],
-        target=targets,
+    targets = reference.reshape(-1, 1) if target_width == 1 else np.empty((6, 0), dtype=np.float32)
+    pool = HostPool(
         inputs=inputs,
+        targets=targets,
+        aux={},
+        metadata={"coordinate_names": ("t", "x"), "output_names": ("u",)},
+        reference_shape=(2, 3),
         flat_index=np.arange(6, dtype=np.int64),
-        reference_shape=np.asarray([2, 3], dtype=np.int64),
     )
+    save_prediction_artifact(path, prediction.reshape(-1, 1), pool)
     return reference, prediction
 
 
@@ -49,16 +51,13 @@ def test_load_burgers_prediction_fields_reconstructs_coordinates_and_values(tmp_
     np.testing.assert_array_equal(prediction, expected_prediction)
     np.testing.assert_array_equal(times, [0.0, 1.0])
     np.testing.assert_array_equal(positions, [-1.0, 0.0, 1.0])
-    assert plotting.relative_l2_error(reference, prediction) == pytest.approx(
-        np.linalg.norm(expected_prediction - expected_reference) / np.linalg.norm(expected_reference)
-    )
 
 
-def test_plot_burgers_predictions_uses_three_panel_layout(
+def test_plot_burgers_predictions_uses_comparable_solution_scales(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Verify plotting follows the reference, prediction, and absolute-error notebook layout.
+    """Verify solution panels share a diverging scale and error uses a sequential scale.
 
     Args:
         monkeypatch: Pytest attribute patch helper used to provide a dependency-free Pyplot double.
@@ -84,6 +83,11 @@ def test_plot_burgers_predictions_uses_three_panel_layout(
         call("Absolute error"),
     ]
     assert pyplot.pcolor.call_count == 3
+    reference_colors, prediction_colors, error_colors = pyplot.pcolor.call_args_list
+    expected_solution_colors = {"shading": "auto", "cmap": "coolwarm", "vmin": -5.0, "vmax": 5.0}
+    assert reference_colors.kwargs == expected_solution_colors
+    assert prediction_colors.kwargs == expected_solution_colors
+    assert error_colors.kwargs == {"shading": "auto", "cmap": "magma", "vmin": 0.0}
     pyplot.savefig.assert_called_once_with(output_path.resolve(), dpi=200, bbox_inches="tight")
     pyplot.show.assert_called_once_with()
     pyplot.close.assert_called_once_with(figure)

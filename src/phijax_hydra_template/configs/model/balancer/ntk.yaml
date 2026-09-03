@@ -1,0 +1,13 @@
+_target_: phijax.balancers.ExactNTKBalancer
+# Recompute exact diagonal-NTK statistics after this many optimizer steps.
+update_every_n_steps: 1000
+# `null` performs the first update after one complete interval; use `0` to update before the first optimizer step.
+update_start_step: null
+# Independently sampled rows per named objective batch used for each NTK refresh.
+kernel_size: 300
+# `null` uses a full-sample `vmap`; use a positive integer for memory-bounded chunking.
+kernel_chunk_size: null
+# Positive floor protecting division by a near-zero mean diagonal kernel value.
+eps: 1.0e-10
+# Previous-weight contribution in `[0, 1)` for exponential smoothing.
+moving_average_coefficient: 0.9

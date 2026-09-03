@@ -1,6 +1,6 @@
 {
   "recorded_at": "2026-08-24",
-  "benchmark_source": "src/pinn_project/applications/burgers/generation.py",
+  "benchmark_source": "src/phijax_hydra_template/applications/burgers/generation.py",
   "dataset": {
     "solution_shape": [201, 512],
     "spatial_method": "undealiased periodic Fourier pseudo-spectral differentiation on 511 unique nodes",
@@ -14,7 +14,7 @@
   },
   "initial_condition": "u(0, x) = -sin(pi * x)",
   "loss_names": [
-    "initial/u",
+    "initial/data",
     "pde/burgers"
   ],
   "implementation": [

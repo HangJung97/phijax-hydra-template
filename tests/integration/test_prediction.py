@@ -1,24 +1,26 @@
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from typing import Any
+from unittest.mock import MagicMock, call
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
+from phijax import PhiModule
 from phijax.callbacks import PredictionContext, PredictionWriter
-from phijax.models import InitializedModel
+from phijax.data import HostPool
 from phijax.utils import register_task_finalizer
 
-from pinn_project import predict as predict_module
-from pinn_project.applications.burgers import build_burgers_pools
+from phijax_hydra_template import predict as predict_module
+from phijax_hydra_template.applications.burgers import build_burgers_pools
 
 
 class _PredictionTrainer:
     """Provide a deterministic prediction runner for entrypoint artifact tests."""
 
-    def __init__(self, callbacks: tuple[PredictionWriter, ...] = (), pool: object | None = None) -> None:
+    def __init__(self, callbacks: tuple[PredictionWriter, ...] = (), pool: HostPool | None = None) -> None:
         """Initialize callbacks, reconstruction data, and an open trainer marker.
 
         Args:
@@ -29,12 +31,12 @@ class _PredictionTrainer:
         self.callbacks = callbacks
         self.prediction_writer = callbacks[0] if callbacks else None
         self.pool = pool
-        self.strategy = SimpleNamespace(is_global_zero=True)
+        self.strategy = SimpleNamespace(is_global_zero=True, root_device=jax.devices()[0])
         self.precision = object()
         self.ckpt_path: str | None = None
         self.ckpt_step: int | None = None
 
-    def predict(
+    def predict_state(
         self,
         module: object,
         state: object,
@@ -42,7 +44,7 @@ class _PredictionTrainer:
         *,
         ckpt_path: str,
         ckpt_step: int | None,
-        datamodule: object,
+        datamodule: Any,
     ) -> jax.Array:
         """Return one flat synthetic prediction array.
 
@@ -82,16 +84,17 @@ class _PredictionTrainer:
         """Record trainer closure."""
         self.closed = True
 
-    def initialize_state(self, *args: object) -> object:
+    def initialize_state(self, *args: object, **kwargs: object) -> object:
         """Return a synthetic checkpoint-compatible state.
 
         Args:
             *args: Model, optimizer, balancer, and key values ignored by the fixture.
+            **kwargs: Sampling and balancing keys ignored by the fixture.
 
         Returns:
             Synthetic state placeholder.
         """
-        del args
+        del args, kwargs
         return object()
 
 
@@ -106,6 +109,7 @@ def test_prediction_task_saves_flat_and_dense_outputs(
         tmp_path: Temporary artifact directory.
     """
     data_module = MagicMock()
+    data_module.input_statistics.return_value = None
     pool = build_burgers_pools(predict_shape=(2, 3))["predict"]
     output_path = tmp_path / "prediction.npz"
     writer = PredictionWriter(
@@ -114,36 +118,30 @@ def test_prediction_task_saves_flat_and_dense_outputs(
     trainer = _PredictionTrainer((writer,), pool)
     state = object()
 
-    def instantiate_trainer(config: object, callbacks: object) -> _PredictionTrainer:
+    def build_trainer(config: object) -> _PredictionTrainer:
         """Register and return the prediction trainer fixture.
 
         Args:
-            config: Ignored trainer configuration.
-            callbacks: Ignored callback collection.
+            config: Ignored root configuration.
 
         Returns:
             Prediction trainer fixture.
         """
-        del config, callbacks
+        del config
         register_task_finalizer(lambda status: trainer.close())
         return trainer
 
-    monkeypatch.setattr(predict_module, "seed_everything", lambda seed: jax.random.key(seed))
-    monkeypatch.setattr(predict_module, "instantiate_callbacks", MagicMock(return_value=()))
-    monkeypatch.setattr(predict_module, "instantiate_trainer", instantiate_trainer)
-    monkeypatch.setattr(predict_module, "instantiate_loggers", MagicMock(return_value=object()))
+    monkeypatch.setattr(predict_module, "build_trainer", build_trainer)
     monkeypatch.setattr(predict_module, "instantiate_data_module", MagicMock(return_value=data_module))
-    monkeypatch.setattr(
-        predict_module,
-        "instantiate_model",
-        MagicMock(return_value=InitializedModel(lambda model_state, inputs: inputs, state)),
-    )
+    monkeypatch.setattr(predict_module, "instantiate_model_factory", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(
         predict_module,
         "instantiate_objective",
         MagicMock(return_value=SimpleNamespace(loss_names=("loss",))),
     )
-    configured_module = SimpleNamespace(loss_names=("loss",))
+    configured_module = MagicMock(spec=PhiModule)
+    configured_module.loss_names = ("loss",)
+    configured_module.prepare_model.return_value = (configured_module, state)
     monkeypatch.setattr(predict_module, "instantiate_module", MagicMock(return_value=configured_module))
     balancer = SimpleNamespace(initialize=lambda: object())
     monkeypatch.setattr(predict_module, "instantiate_balancer", MagicMock(return_value=balancer))
@@ -151,7 +149,6 @@ def test_prediction_task_saves_flat_and_dense_outputs(
     config = OmegaConf.create(
         {
             "seed": 4,
-            "bootstrap_only": False,
             "ckpt_path": str(tmp_path / "checkpoints"),
             "ckpt_step": None,
             "application": {"name": "test"},
@@ -160,7 +157,7 @@ def test_prediction_task_saves_flat_and_dense_outputs(
                 "module": {"_target_": "example.Module"},
                 "net": {"_target_": "example.Model"},
                 "objective": {"_target_": "example.Objective"},
-                "balancer": {"factory": {"_target_": "example.Balancer"}},
+                "balancer": {"_target_": "example.Balancer"},
                 "optimizer": {"_target_": "example.Optimizer"},
             },
             "trainer": {"_target_": "example.Trainer"},
@@ -176,9 +173,9 @@ def test_prediction_task_saves_flat_and_dense_outputs(
     assert trainer.closed is True
     assert trainer.ckpt_path == str(tmp_path / "checkpoints")
     assert trainer.ckpt_step is None
-    data_module.prepare_stage.assert_called_once_with("predict")
+    assert data_module.prepare_stage.call_args_list == [call("fit"), call("predict")]
     data_module.predict_batch_source.assert_called_once_with()
-    data_module.teardown_stage.assert_called_once_with("predict")
+    assert data_module.teardown_stage.call_args_list == [call("fit"), call("predict")]
     with np.load(output_path) as artifact:
         assert artifact["flat_prediction"].shape == (6, 1)
         assert artifact["prediction"].shape == (2, 3, 1)
@@ -201,11 +198,9 @@ def test_prediction_task_requires_a_checkpoint_for_executable_runs(monkeypatch: 
     Args:
         monkeypatch: Pytest attribute patch helper.
     """
-    monkeypatch.setattr(predict_module, "seed_everything", lambda seed: jax.random.key(seed))
     config = OmegaConf.create(
         {
             "seed": 4,
-            "bootstrap_only": False,
             "ckpt_path": "???",
             "ckpt_step": None,
             "paths": {"output_dir": "."},

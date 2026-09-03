@@ -1,18 +1,17 @@
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock, call
 
-import jax
 import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
 from omegaconf import OmegaConf
-from phijax.models import InitializedModel
-from phijax.training import FitResult, TrainingPlan
+from phijax import FitResult, PhiModule
 from phijax.utils import register_task_finalizer
 
-from pinn_project import train as train_module
+from phijax_hydra_template import train as train_module
 
 
 class _PostTrainingPredictionTrainer:
@@ -38,22 +37,6 @@ class _PostTrainingPredictionTrainer:
         self.interrupted = interrupted
         self.predicted_state: object | None = None
 
-    def print_environment_info(self) -> None:
-        """Skip runtime output for the orchestration fixture."""
-        return None
-
-    def initialize_state(self, *args: object) -> object:
-        """Return a synthetic functional state.
-
-        Args:
-            *args: Model, optimizer, balancer, and key values ignored by the fixture.
-
-        Returns:
-            Synthetic state placeholder.
-        """
-        del args
-        return object()
-
     def fit(self, *args: object, **kwargs: object) -> FitResult:
         """Return a completed one-step fit result.
 
@@ -64,15 +47,18 @@ class _PostTrainingPredictionTrainer:
         Returns:
             Deterministic completed fit result.
         """
-        del args
-        datamodule = kwargs.pop("datamodule")
-        sampling_key = kwargs.pop("sampling_key")
+        module = args[0]
+        datamodule: Any = kwargs.pop("datamodule")
+        kwargs.pop("optimizer")
+        kwargs.pop("seed")
+        kwargs.pop("balancer")
         datamodule.prepare_stage("fit")
-        datamodule.train_batch_source(("initial",), sampling_key)
+        datamodule.train_batch_source(("initial",), object())
         kwargs.clear()
         datamodule.teardown_stage("fit")
         return FitResult(
-            state=object(),
+            module=cast(Any, module),
+            state=cast(Any, object()),
             metrics={"train/loss": 1.0},
             stopped_early=False,
             interrupted=self.interrupted,
@@ -81,26 +67,23 @@ class _PostTrainingPredictionTrainer:
 
     def predict(
         self,
-        module: object,
-        state: object,
+        result: FitResult,
         batches: object = None,
         *,
-        datamodule: object,
+        datamodule: Any,
     ) -> np.ndarray | None:
         """Predict from the fit result after setting up the DataModule.
 
         Args:
-            module: Configured module unused by the fixture.
-            state: Final in-memory fit state recorded for assertions.
+            result: Final fit result whose state is recorded for assertions.
             batches: Optional explicit batches, expected to be absent.
             datamodule: DataModule supplying optional prediction data.
 
         Returns:
             One synthetic prediction, or `None` when the DataModule has no prediction source.
         """
-        del module
         assert batches is None
-        self.predicted_state = state
+        self.predicted_state = result.state
         datamodule.prepare_stage("predict")
         try:
             if datamodule.predict_batch_source() is None:
@@ -117,54 +100,52 @@ class _PostTrainingPredictionTrainer:
         self.closed = True
 
 
-def test_training_task_applies_root_seed_before_bootstrap(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Verify the generic Hydra task globally seeds host RNGs before training assembly.
+def test_optimized_metric_reads_the_final_fit_result() -> None:
+    """Verify a configured sweep objective is returned as a Python float."""
+    config = OmegaConf.create({"optimized_metric": "train/loss"})
+    result = FitResult(
+        module=cast(Any, object()),
+        state=cast(Any, object()),
+        metrics=cast(dict[str, float], {"train/loss": np.float32(0.25)}),
+        stopped_early=False,
+        interrupted=False,
+        iterations=1,
+    )
 
-    Args:
-        monkeypatch: Pytest attribute patch helper.
-        tmp_path: Temporary output directory fixture.
-    """
-    seeded: list[int] = []
-    monkeypatch.setattr(train_module, "seed_everything", lambda seed: seeded.append(seed))
-    config = OmegaConf.create({"seed": 41, "paths": {"output_dir": str(tmp_path)}})
-    train_module.train(config)
-    assert seeded == [41]
-
-
-def test_training_task_resolves_and_logs_null_seed(
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Verify `seed: null` becomes concrete before assembly and experiment logging.
-
-    Args:
-        caplog: Pytest fixture capturing the resolved-seed lifecycle message.
-        monkeypatch: Pytest attribute patch helper.
-        tmp_path: Temporary output directory fixture.
-    """
-    seeded: list[int] = []
-    monkeypatch.setattr(train_module, "resolve_seed", lambda seed: 271828 if seed is None else seed)
-    monkeypatch.setattr(train_module, "seed_everything", lambda seed: seeded.append(seed))
-    config = OmegaConf.create({"seed": None, "paths": {"output_dir": str(tmp_path)}})
-
-    with caplog.at_level(logging.INFO, logger="pinn_project.train"):
-        train_module.train(config)
-
-    assert config.seed == 271828
-    assert seeded == [271828]
-    assert "Global seed set to 271828." in caplog.text
+    objective = train_module._get_optimized_metric(config, result)
+    assert type(objective) is float
+    assert objective == pytest.approx(0.25)
 
 
-def test_bootstrap_description_reports_selected_application() -> None:
-    """Verify the generic entrypoint identifies a composed application without knowing its implementation."""
-    generic = OmegaConf.create({})
-    application = OmegaConf.create({"application": {"name": "example"}})
-    assert "application" not in train_module.describe_bootstrap(generic)
-    assert "`example` application" in train_module.describe_bootstrap(application)
+def test_optimized_metric_is_optional_for_normal_training() -> None:
+    """Verify an ordinary run does not require an optimization objective."""
+    config = OmegaConf.create({"optimized_metric": None})
+    result = FitResult(
+        module=cast(Any, object()),
+        state=cast(Any, object()),
+        metrics={},
+        stopped_early=False,
+        interrupted=False,
+        iterations=1,
+    )
+
+    assert train_module._get_optimized_metric(config, result) is None
+
+
+def test_optimized_metric_reports_available_metrics() -> None:
+    """Verify a misspelled sweep objective fails with useful metric names."""
+    config = OmegaConf.create({"optimized_metric": "validation/loss"})
+    result = FitResult(
+        module=cast(Any, object()),
+        state=cast(Any, object()),
+        metrics={"train/loss": 0.25},
+        stopped_early=False,
+        interrupted=False,
+        iterations=1,
+    )
+
+    with pytest.raises(KeyError, match=r"validation/loss.*train/loss"):
+        train_module._get_optimized_metric(config, result)
 
 
 @pytest.mark.parametrize("interrupted", [False, True])
@@ -183,52 +164,37 @@ def test_training_prediction_reuses_final_state_and_data_module(
     trainer = _PostTrainingPredictionTrainer(tmp_path, interrupted=interrupted)
     data_module = MagicMock()
     data_module.predict_batch_source.return_value = object()
-    train_step = MagicMock()
-    state = object()
 
-    def instantiate_trainer(config: object, callbacks: object) -> _PostTrainingPredictionTrainer:
+    def build_trainer(config: object) -> _PostTrainingPredictionTrainer:
         """Register and return the shared trainer fixture.
 
         Args:
-            config: Trainer configuration unused by the fixture.
-            callbacks: Callback instances unused by the fixture.
+            config: Root configuration unused by the fixture.
 
         Returns:
             Shared trainer fixture.
         """
-        del config, callbacks
+        del config
         register_task_finalizer(lambda _: trainer.close())
         return trainer
 
-    monkeypatch.setattr(train_module, "seed_everything", lambda seed: jax.random.key(seed))
-    monkeypatch.setattr(train_module, "instantiate_callbacks", MagicMock(return_value=()))
-    monkeypatch.setattr(train_module, "instantiate_trainer", instantiate_trainer)
-    monkeypatch.setattr(train_module, "instantiate_loggers", MagicMock(return_value=trainer.logger))
+    monkeypatch.setattr(train_module, "build_trainer", build_trainer)
     monkeypatch.setattr(train_module, "instantiate_data_module", MagicMock(return_value=data_module))
-    monkeypatch.setattr(
-        train_module,
-        "instantiate_model",
-        MagicMock(return_value=InitializedModel(lambda model_state, inputs: inputs, state)),
-    )
+    monkeypatch.setattr(train_module, "instantiate_model_factory", MagicMock(return_value=MagicMock()))
     monkeypatch.setattr(
         train_module,
         "instantiate_objective",
         MagicMock(return_value=SimpleNamespace(loss_names=("loss",))),
     )
-    configured_module = SimpleNamespace(loss_names=("loss",))
+    configured_module = MagicMock(spec=PhiModule)
+    configured_module.loss_names = ("loss",)
     monkeypatch.setattr(train_module, "instantiate_module", MagicMock(return_value=configured_module))
     balancer = SimpleNamespace(initialize=lambda: object())
     monkeypatch.setattr(train_module, "instantiate_balancer", MagicMock(return_value=balancer))
     monkeypatch.setattr(train_module, "instantiate_optimizer", MagicMock(return_value=object()))
-    monkeypatch.setattr(
-        train_module,
-        "configure_training",
-        MagicMock(return_value=TrainingPlan(train_step, ("initial",))),
-    )
     config = OmegaConf.create(
         {
             "seed": 9,
-            "bootstrap_only": False,
             "predict": True,
             "application": {
                 "name": "burgers",
@@ -243,20 +209,18 @@ def test_training_prediction_reuses_final_state_and_data_module(
                 "module": {"_target_": "example.Module"},
                 "net": {"_target_": "example.build_model"},
                 "objective": {"_target_": "example.build_objective"},
-                "balancer": {"factory": {"_target_": "example.build_balancer"}},
+                "balancer": {"_target_": "example.build_balancer"},
                 "optimizer": {"_target_": "example.build_optimizer"},
             },
             "trainer": {"_target_": "example.Trainer"},
             "callbacks": {
-                "model_checkpoint": {"enabled": True},
+                "model_checkpoint": {"_target_": "example.ModelCheckpoint"},
                 "rich_progress_bar": {
-                    "enabled": True,
                     "_target_": "phijax.callbacks.RichProgressBar",
                     "total": 10,
                     "predict_description": "Predicting",
                 },
                 "prediction_writer": {
-                    "enabled": True,
                     "_target_": "phijax.callbacks.PredictionWriter",
                     "output_dir": "${oc.select:output_dir,null}",
                     "save_file_name": "${oc.select:save_file_name,predictions}",
@@ -301,7 +265,7 @@ def test_training_task_runs_a_small_composed_experiment(
     """
     repository_root = Path(__file__).parents[2]
     monkeypatch.setenv("PROJECT_ROOT", str(repository_root))
-    config_dir = repository_root / "src" / "pinn_project" / "configs"
+    config_dir = repository_root / "src" / "phijax_hydra_template" / "configs"
     with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
         config = compose(
             config_name="train",
@@ -319,7 +283,7 @@ def test_training_task_runs_a_small_composed_experiment(
                 "data.predict_shape=[2,2]",
                 "data.batch_size.initial=2",
                 "data.batch_size.pde=2",
-                "callbacks.model_checkpoint.enabled=false",
+                "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
         )
@@ -329,32 +293,36 @@ def test_training_task_runs_a_small_composed_experiment(
 
     assert isinstance(result, FitResult)
     assert result.iterations == 1
-    assert set(config.model.objective.terms) == {"initial", "pde"}
+    assert set(config.model.objective.equations) == {"initial", "pde"}
     assert "train/loss" in result.metrics
-    assert result.metrics["train/lr"] == pytest.approx(0.0)
+    assert result.metrics["optimizer/lr-adamw"] == pytest.approx(0.0)
+    log_dir = tmp_path / "phijax_logs" / "version_0"
+    assert (log_dir / "hparams.yaml").is_file()
+    assert (log_dir / "metrics.csv").is_file()
     standard_output = capsys.readouterr().out
     assert "Using 32-bit true precision" in standard_output
     assert "MLP Summary" in standard_output
     assert "Total Parameters: 21" in standard_output
     lifecycle_loggers = {
-        "pinn_project.train",
+        "phijax_hydra_template.train",
         "phijax.integrations.hydra.assembly",
         "phijax.integrations.hydra.factory",
     }
     messages = [record.message for record in caplog.records if record.name in lifecycle_loggers]
     assert messages == [
-        "Global seed set to 42.",
-        "Instantiating callbacks...",
-        "Instantiating trainer <phijax.training.Trainer>",
-        "Instantiating loggers...",
+        "Trainer seed set to 42.",
+        "Instantiating trainer <phijax.Trainer>",
         "Using freshly initialized training state.",
-        "Instantiating data module <pinn_project.applications.burgers.BurgersDataModule>",
-        "Instantiating model <phijax.models.build_mlp>",
-        "Instantiating objective <phijax.objectives.CompositeObjective>",
-        "Instantiating module <phijax.module.PhiModule>",
+        "Logging hyperparameters!",
+        "Instantiating data module <phijax_hydra_template.applications.burgers.BurgersDataModule>",
+        "Instantiating model factory <phijax.models.build_mlp>",
+        "Instantiating objective <phijax.objectives.CompositeObjective.from_equations>",
+        "Instantiating module <phijax.PhiModule>",
         "Instantiating loss balancer <phijax.balancers.StaticLossBalancer>",
         "Instantiating optimizer <optax.adamw>",
         "Starting training!",
+        "Starting prediction from the final in-memory training state.",
+        f"Predictions saved to <{tmp_path / 'predictions' / 'burgers_analytic_1d.npz'}>.",
     ]
 
 
@@ -370,7 +338,7 @@ def test_training_task_runs_a_grad_norm_refresh(
     """
     repository_root = Path(__file__).parents[2]
     monkeypatch.setenv("PROJECT_ROOT", str(repository_root))
-    config_dir = repository_root / "src" / "pinn_project" / "configs"
+    config_dir = repository_root / "src" / "phijax_hydra_template" / "configs"
     with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
         config = compose(
             config_name="train",
@@ -378,8 +346,8 @@ def test_training_task_runs_a_grad_norm_refresh(
                 "experiment=burgers_grad_norm_1d",
                 "data=burgers_analytic_1d",
                 "model/balancer=grad_norm",
-                "model.balancer.update.every_n_steps=1",
-                "model.balancer.update.skip_first_step=false",
+                "model.balancer.update_every_n_steps=1",
+                "model.balancer.update_start_step=0",
                 "trainer.accelerator=cpu",
                 "trainer.precision=32-true",
                 "trainer.max_steps=1",
@@ -390,13 +358,14 @@ def test_training_task_runs_a_grad_norm_refresh(
                 "data.predict_shape=[2,2]",
                 "data.batch_size.initial=2",
                 "data.batch_size.pde=2",
-                "callbacks.model_checkpoint.enabled=false",
+                "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
         )
 
     result = train_module.train(config)
 
+    assert isinstance(result, FitResult)
     weights = np.asarray([value for name, value in result.metrics.items() if name.startswith("train/weight/")])
     assert result.iterations == 1
     assert weights.shape == (2,)
@@ -416,7 +385,7 @@ def test_training_task_runs_a_chunked_ntk_refresh(
     """
     repository_root = Path(__file__).parents[2]
     monkeypatch.setenv("PROJECT_ROOT", str(repository_root))
-    config_dir = repository_root / "src" / "pinn_project" / "configs"
+    config_dir = repository_root / "src" / "phijax_hydra_template" / "configs"
     with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
         config = compose(
             config_name="train",
@@ -424,10 +393,10 @@ def test_training_task_runs_a_chunked_ntk_refresh(
                 "experiment=burgers_grad_norm_1d",
                 "data=burgers_analytic_1d",
                 "model/balancer=ntk",
-                "model.balancer.update.every_n_steps=1",
-                "model.balancer.update.skip_first_step=false",
-                "model.balancer.update.kernel_size=2",
-                "model.balancer.update.kernel_chunk_size=1",
+                "model.balancer.update_every_n_steps=1",
+                "model.balancer.update_start_step=0",
+                "model.balancer.kernel_size=2",
+                "model.balancer.kernel_chunk_size=1",
                 "trainer.accelerator=cpu",
                 "trainer.precision=32-true",
                 "trainer.max_steps=1",
@@ -438,13 +407,14 @@ def test_training_task_runs_a_chunked_ntk_refresh(
                 "data.predict_shape=[2,2]",
                 "data.batch_size.initial=2",
                 "data.batch_size.pde=2",
-                "callbacks.model_checkpoint.enabled=false",
+                "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
         )
 
     result = train_module.train(config)
 
+    assert isinstance(result, FitResult)
     weights = np.asarray([value for name, value in result.metrics.items() if name.startswith("train/weight/")])
     assert result.iterations == 1
     assert weights.shape == (2,)

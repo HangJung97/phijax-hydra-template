@@ -1,10 +1,11 @@
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 from scipy.io import loadmat
 
-from pinn_project.applications.burgers import generation
+from phijax_hydra_template.applications.burgers import generation
 
 
 def test_generate_burgers_solution_preserves_initial_and_periodic_conditions() -> None:
@@ -98,7 +99,7 @@ def test_ensure_burgers_dataset_generates_only_when_missing(
     ],
 )
 def test_generate_burgers_solution_rejects_invalid_configuration(
-    kwargs: dict[str, float | int],
+    kwargs: dict[str, Any],
     match: str,
 ) -> None:
     """Verify invalid numerical settings fail before integration.

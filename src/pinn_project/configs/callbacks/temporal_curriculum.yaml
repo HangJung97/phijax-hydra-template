@@ -1,3 +1,0 @@
-# Reserved application-level switch. Without `_target_`, the trainer does not instantiate a callback.
-temporal_curriculum:
-  enabled: false

@@ -1,0 +1,32 @@
+# @package _global_
+
+# Optuna runs the composed Burgers experiment once for each proposed parameter set.
+defaults:
+  - override /hydra/sweeper: optuna
+  - override /callbacks: search
+  - override /logger: null
+  - _self_
+
+# The training entrypoint returns this final PhiJAX metric to Optuna.
+optimized_metric: train/loss
+# Trial jobs only need the objective value. Run prediction separately from the selected checkpoint if needed.
+predict: false
+
+hydra:
+  sweeper:
+    direction: minimize
+    study_name: burgers_grad_norm_1d
+    storage: null
+    n_trials: 20
+    n_jobs: 1
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: ${seed}
+      n_startup_trials: 5
+    params:
+      # Search scalar settings that can be changed without rebuilding the Burgers application.
+      # This scheduler value is the optimizer's peak learning rate after warmup.
+      model.scheduler.peak_value: tag(log, interval(1.0e-4, 1.0e-2))
+      model.optimizer.weight_decay: tag(log, interval(1.0e-6, 1.0e-2))
+      model.net.fourier_features_kwargs.scale: interval(0.5, 4.0)
+      model.balancer.moving_average_coefficient: interval(0.5, 0.99)

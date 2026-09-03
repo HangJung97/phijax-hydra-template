@@ -1,0 +1,6 @@
+_target_: phijax.training.CSVLogger
+# Each Hydra job already has a unique output directory, so its local PhiJAX logger starts at version zero.
+save_dir: ${paths.output_dir}/phijax_logs/version_0
+filename: metrics.csv
+name: phijax_logs
+version: 0

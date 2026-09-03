@@ -1,3 +1,0 @@
-# Generic objective-backed module. Runtime model callables, objectives, names, and summaries are injected by the
-# training and prediction entrypoints so custom module configs can replace this target without changing orchestration.
-_target_: phijax.module.PhiModule

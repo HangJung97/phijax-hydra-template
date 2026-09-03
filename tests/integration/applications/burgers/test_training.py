@@ -3,9 +3,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 from hydra import compose, initialize_config_dir
-from phijax.training import FitResult
+from phijax import FitResult
 
-from pinn_project import train as train_module
+from phijax_hydra_template import train as train_module
 
 
 def test_burgers_experiment_runs_a_compiled_training_update(
@@ -20,7 +20,7 @@ def test_burgers_experiment_runs_a_compiled_training_update(
     """
     repository_root = Path(__file__).parents[4]
     monkeypatch.setenv("PROJECT_ROOT", str(repository_root))
-    config_dir = repository_root / "src" / "pinn_project" / "configs"
+    config_dir = repository_root / "src" / "phijax_hydra_template" / "configs"
     with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
         config = compose(
             config_name="train",
@@ -28,8 +28,8 @@ def test_burgers_experiment_runs_a_compiled_training_update(
                 "experiment=burgers_grad_norm_1d",
                 # Keep compiled API coverage lightweight without generating the full numerical reference fixture.
                 "data=burgers_analytic_1d",
-                "model.balancer.update.every_n_steps=1",
-                "model.balancer.update.skip_first_step=false",
+                "model.balancer.update_every_n_steps=1",
+                "model.balancer.update_start_step=0",
                 "trainer.accelerator=cpu",
                 "trainer.max_steps=2",
                 "trainer.log_every_n_steps=1",
@@ -39,9 +39,9 @@ def test_burgers_experiment_runs_a_compiled_training_update(
                 "data.pde_sampling=uniform",
                 "data.predict_shape=[2,2]",
                 "data.batch_size.pde=2",
-                "callbacks.rich_model_summary.enabled=false",
-                "callbacks.rich_progress_bar.enabled=false",
-                "callbacks.model_checkpoint.enabled=false",
+                "~callbacks.rich_model_summary",
+                "~callbacks.rich_progress_bar",
+                "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
         )
@@ -50,7 +50,7 @@ def test_burgers_experiment_runs_a_compiled_training_update(
 
     assert isinstance(result, FitResult)
     assert result.iterations == 2
-    assert {"train/loss", "train/loss/initial/u", "train/loss/pde/burgers"}.issubset(result.metrics)
+    assert {"train/loss", "train/loss/initial/data", "train/loss/pde/burgers"}.issubset(result.metrics)
     assert all(np.isfinite(float(result.metrics[name])) for name in result.metrics if name.startswith("train/loss"))
     weights = np.asarray([value for name, value in result.metrics.items() if name.startswith("train/weight/")])
     assert weights.shape == (2,)

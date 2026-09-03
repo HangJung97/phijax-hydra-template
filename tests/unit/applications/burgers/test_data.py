@@ -1,9 +1,11 @@
+from typing import Any
+
 import jax
 import numpy as np
 import pytest
 from phijax.data import RandomRowSampler, UniformDomainSampler, reconstruct_predictions
 
-from pinn_project.applications.burgers import BurgersDataModule, build_burgers_pools
+from phijax_hydra_template.applications.burgers import BurgersDataModule, build_burgers_pools
 
 
 def test_burgers_pools_match_domain_initial_condition_and_prediction_layout() -> None:
@@ -56,7 +58,7 @@ def test_burgers_pool_builder_can_omit_finite_interior_candidates() -> None:
         ({"space_bounds": (-1.0, -1.0)}, "space_bounds"),
     ],
 )
-def test_burgers_pools_reject_invalid_geometry(kwargs: dict[str, object], match: str) -> None:
+def test_burgers_pools_reject_invalid_geometry(kwargs: dict[str, Any], match: str) -> None:
     """Verify invalid pool sizes, shapes, and intervals fail eagerly.
 
     Args:
