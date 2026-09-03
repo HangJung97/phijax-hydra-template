@@ -18,11 +18,14 @@
 [![Codecov](https://codecov.io/gh/HangJung97/phijax-hydra-template/graph/badge.svg)](https://codecov.io/gh/HangJung97/phijax-hydra-template)
 <br>
 [![License](https://img.shields.io/github/license/HangJung97/phijax-hydra-template?color=blue)](LICENSE)
+
 <br>
 <br>
+
 Click on [<kbd>Use this template</kbd>](https://github.com/HangJung97/phijax-hydra-template/generate) to initialize new repository.
 
 </div>
+
 <br>
 
 This template is a ready-to-use starting point for physics-informed neural network experiments with
