@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, call
 
@@ -69,12 +70,14 @@ def test_plot_burgers_predictions_uses_comparable_solution_scales(
     figure = object()
     pyplot.figure.return_value = figure
     pyplot.pcolor.side_effect = [object(), object(), object()]
-    monkeypatch.setattr(plotting, "_import_pyplot", lambda: pyplot)
+    import_pyplot = MagicMock(return_value=pyplot)
+    monkeypatch.setattr(plotting, "_import_pyplot", import_pyplot)
     output_path = tmp_path / "figures" / "burgers.png"
 
     result = plotting.plot_burgers_predictions(artifact_path, output_path, show=True)
 
     assert result == output_path.resolve()
+    import_pyplot.assert_called_once_with(show=True)
     pyplot.figure.assert_called_once_with(figsize=(18, 5))
     assert pyplot.subplot.call_args_list == [call(1, 3, 1), call(1, 3, 2), call(1, 3, 3)]
     assert pyplot.title.call_args_list == [
@@ -91,6 +94,21 @@ def test_plot_burgers_predictions_uses_comparable_solution_scales(
     pyplot.savefig.assert_called_once_with(output_path.resolve(), dpi=200, bbox_inches="tight")
     pyplot.show.assert_called_once_with()
     pyplot.close.assert_called_once_with(figure)
+
+
+def test_import_pyplot_uses_agg_for_noninteractive_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify file-only plotting ignores a notebook backend inherited by a subprocess.
+
+    Args:
+        monkeypatch: Pytest environment patch helper used to emulate a notebook kernel.
+    """
+    notebook_backend = "module://matplotlib_inline.backend_inline"
+    monkeypatch.setenv("MPLBACKEND", notebook_backend)
+
+    pyplot = plotting._import_pyplot(show=False)
+
+    assert pyplot.get_backend().lower() == "agg"
+    assert os.environ["MPLBACKEND"] == notebook_backend
 
 
 def test_burgers_plotting_rejects_artifacts_without_reference_targets(tmp_path: Path) -> None:

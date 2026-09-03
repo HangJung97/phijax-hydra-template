@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from typing import Any
 
@@ -50,8 +51,11 @@ def load_burgers_prediction_fields(
     return reference, prediction, times, positions
 
 
-def _import_pyplot() -> Any:
+def _import_pyplot(*, show: bool) -> Any:
     """Import Matplotlib lazily to defer plotting-backend initialization until needed.
+
+    Args:
+        show: Whether the caller needs an interactive plotting backend.
 
     Returns:
         Imported :mod:`matplotlib.pyplot` module.
@@ -59,12 +63,26 @@ def _import_pyplot() -> Any:
     Raises:
         ModuleNotFoundError: If the default project dependencies have not been installed completely.
     """
+    previous_backend = os.environ.get("MPLBACKEND")
+    if not show:
+        # Notebook kernels can export an inline backend that is unavailable in the project's plotting subprocess.
+        os.environ["MPLBACKEND"] = "Agg"
     try:
+        import matplotlib
+
+        if not show:
+            matplotlib.use("Agg")
         import matplotlib.pyplot as pyplot
     except ModuleNotFoundError as error:
         raise ModuleNotFoundError(
             "Burgers plotting requires the default Matplotlib dependency; run `uv sync`."
         ) from error
+    finally:
+        if not show:
+            if previous_backend is None:
+                os.environ.pop("MPLBACKEND", None)
+            else:
+                os.environ["MPLBACKEND"] = previous_backend
     return pyplot
 
 
@@ -91,7 +109,7 @@ def plot_burgers_predictions(
         else Path(output_path).expanduser().resolve()
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
-    pyplot = _import_pyplot()
+    pyplot = _import_pyplot(show=show)
     figure = pyplot.figure(figsize=(18, 5))
     solution_limit = float(np.max(np.abs(reference)))
     fields = (
