@@ -1,405 +1,117 @@
-# Building an application DataModule
+# Configure application data
 
-PhiJAX keeps its core data abstraction deliberately small. `PhiDataModule` defines the lifecycle required by training
-and prediction, while each application owns its dataset construction, pool names, sampler policy, and meaningful
-configuration fields.
+An application DataModule prepares data for training and prediction. It also defines how PhiJAX samples each batch.
 
-This follows two principles:
+This project includes `BurgersDataModule` as a working example. For the full data API, see the
+[PhiJAX data guide](https://hangjung97.github.io/PhiJAX/guides/datasets/) and
+[data API](https://hangjung97.github.io/PhiJAX/api/data/).
 
-- framework code should not need to understand an application's files, geometry, targets, or boundary extraction; and
-- application configuration should describe experiment choices rather than the mechanics of a universal data schema.
+## What the DataModule owns
 
-The reusable `phijax.data` package still provides immutable pools, array IO, declarative array-building helpers, device
-placement, finite and generated samplers, and prediction chunking. An application DataModule composes only the helpers
-it needs.
+The Burgers DataModule decides:
 
-## The `PhiDataModule` contract
+- where the data comes from;
+- which arrays belong to each training pool;
+- how each pool is sampled;
+- how many rows are used in one step; and
+- how prediction points are split into chunks.
 
-An application subclasses `phijax.data.PhiDataModule` and implements five operations:
+The PhiJAX Trainer moves batches to the selected device. The DataModule builds host data with NumPy.
 
-```python
-class PhiDataModule(ABC):
-    def prepare_data(self) -> None: ...
+Input normalization is optional. The base `DataModule.input_statistics()` returns `None`. The Burgers DataModule opts
+in by calling the public `phijax.data.input_statistics()` helper for its fixed training pools.
 
-    @abstractmethod
-    def setup(self, stage: DataStage) -> None: ...
+## Burgers data options
 
-    @abstractmethod
-    def train_batch_source(
-        self,
-        batch_keys: tuple[str, ...],
-        key: jax.Array,
-    ) -> TrainingBatchSource: ...
+The main data config is `configs/data/burgers_1d.yaml`.
 
-    @abstractmethod
-    def predict_batch_source(self) -> PredictionBatchSource | None: ...
+| Option         | Meaning                                             |
+| -------------- | --------------------------------------------------- |
+| `data_path`    | Path to the generated Burgers reference file        |
+| `seed`         | Seed used to create fixed PDE points                |
+| `pde_sampling` | `fixed` reuses a pool; `uniform` creates new points |
+| `pde_size`     | Number of points in the fixed PDE pool              |
+| `batch_size`   | Rows used in one step or prediction chunk           |
 
-    @abstractmethod
-    def prediction_pool(self) -> HostPool: ...
+Use the small analytic config when you do not need reference targets:
+
+```bash
+phijax-train experiment=burgers_grad_norm_1d data=burgers_analytic_1d
 ```
 
-The remaining lifecycle and normalization methods are:
+## Data pools
 
-- `prepare_stage(stage)`, for idempotently running `prepare_data()` and `setup(stage)`;
-- `teardown_stage(stage)`, for releasing the active stage exactly once;
-- `prepare_data()`, for generating or downloading an artifact before loading it;
-- `prediction_pool()`, for declaring the ordered host pool represented by prediction chunks;
-- `normalization_pools()`, for selecting the coordinates used to derive network input mean and standard deviation; and
-- `input_statistics()`, for overriding pool-derived normalization with exact continuous-distribution statistics; and
-- `teardown(stage)`, for releasing application-owned resources.
+The Burgers application uses three named pools:
 
-`prepare_data()` and host-pool builders should use NumPy and avoid initializing JAX. DataModules construct host-backed
-sampler definitions and prediction chunks; the Trainer prepares persistent sampler state on its Strategy's root device
-and places or shards every batch before compiled execution.
+| Pool      | Inputs   | Targets | Purpose                             |
+| --------- | -------- | ------- | ----------------------------------- |
+| `initial` | `[t, x]` | `[u]`   | Enforce the initial condition       |
+| `pde`     | `[t, x]` | none    | Evaluate the Burgers equation       |
+| `predict` | `[t, x]` | `[u]`   | Create and evaluate the output grid |
 
-Calling `Trainer.fit(module, training_plan, state, datamodule=data_module, sampling_key=key)` lets the Trainer request,
-place, and iterate the training source. Calling `Trainer.predict(module, state, datamodule=data_module)` does the same
-for prediction. Return `None` from `predict_batch_source()` when an application has no prediction data; callbacks and
-module prediction hooks are then skipped.
+The pool names match the equation keys in the objective config. If you change a pool name, update the objective too.
 
-Like Lightning, `setup(stage)` assigns process-local data state rather than returning it. PhiJAX stores that state as
-the explicit `pools` mapping on the host-side DataModule. Unlike Lightning, the two source hooks are not called
-`dataloader` because they do not imply PyTorch datasets, worker processes, or `torch.utils.data.DataLoader` behavior.
+PhiJAX stores each pool in a `HostPool`. A pool contains:
 
-## Reusable host transforms
+- `inputs`: a two-dimensional NumPy array;
+- `targets`: a two-dimensional NumPy array, including zero-width targets for PDE-only points;
+- `aux`: optional sample data, such as weights or normals;
+- `metadata`: coordinate and output names; and
+- `reference_shape` and `flat_index`: values used to rebuild a prediction grid.
 
-Application DataModules can compose NumPy-only transforms from `phijax.data` while constructing pools:
+## Fixed and uniform sampling
 
-```python
-from phijax.data import log_compress, minmax_scale, scale_by_max, standardize
-
-power_weight = log_compress(power, percentile=99.0, dynamic_range=40.0)
-normalized_temperature = minmax_scale(temperature, minimum=train_min, maximum=train_max)
-standardized_signal = standardize(signal, mean=train_mean, std=train_std)
-bounded_confidence = scale_by_max(confidence, percentile=99.5)
-```
-
-Statistics supplied through `minimum`, `maximum`, `mean`, and `std` may be derived from training data once and reused
-for prediction. These generic transforms do not replace physical nondimensionalization: characteristic length,
-velocity, time, pressure, or material scales remain explicit application rules in the DataModule.
-
-## `HostPool` fields
-
-Every pool is an immutable `HostPool`:
-
-| Field             | Required shape or meaning                                                          |
-| ----------------- | ---------------------------------------------------------------------------------- |
-| `inputs`          | Rank-two `[samples, input_features]` NumPy array                                   |
-| `targets`         | Rank-two `[samples, target_features]`; use `[samples, 0]` for an unsupervised pool |
-| `aux`             | Sample-wise arrays such as weights, normals, periods, or material coefficients     |
-| `metadata`        | Structural information that is not transferred into compiled training              |
-| `reference_shape` | Dense grid dimensions used to reconstruct flat predictions                         |
-| `flat_index`      | Integer indices mapping pool rows into the flattened reference grid                |
-
-`HostPool` copies and freezes its arrays. Every NumPy array in `aux` must share the leading input row count.
-
-Batch-stream names are part of the application API. Every objective `batch_key` must be handled by
-`train_batch_source()` and have a batch-size policy. A stream may select a finite pool or generate coordinates from a
-continuous domain:
-
-```text
-model.objective.terms.<term>.batch_key
-                    │
-                    ├── finite HostPool or generated-domain sampler
-                    └── data.batch_size key
-```
-
-## Pool size and batch size
-
-Keep construction sizes separate from runtime batch sizes:
+Fixed sampling creates `pde_size` points once. Each step selects a batch from this pool:
 
 ```yaml
 pde_sampling: fixed
 pde_size: 16384
-
 batch_size:
   pde: 4096
 ```
 
-These values mean:
-
-```text
-pde_size           = finite candidate coordinates stored in the host pool
-batch_size.pde     = candidate rows evaluated during one optimizer step
-```
-
-For a continuously generated sampler such as `uniform_domain`, no finite `pde_size` exists. In that case,
-`batch_size.pde` is the number of newly generated coordinates per optimizer step.
-
-For example, the Burgers DataModule can switch policies without changing its objective:
+Uniform sampling creates a new batch inside the domain at each step:
 
 ```bash
-pinn-train experiment=burgers_grad_norm_1d data.pde_sampling=uniform
+phijax-train experiment=burgers_grad_norm_1d data.pde_sampling=uniform
 ```
 
-In `fixed` mode, it constructs `pde_size` candidates and selects random rows. In `uniform` mode, it does not construct
-a `pde` host pool; instead, it samples a reproducible fresh batch from the time-space bounds for every global optimizer
-step. Its explicit root key and restored global step ensure resumed training follows the same coordinate sequence.
+Both modes use explicit JAX keys. The same seed and training step produce the same points.
 
-For independent uniform coordinates on intervals `[a, b]`, normalization does not require a surrogate finite pool.
-An application can override `PhiDataModule.input_statistics()` with the exact values
-`mean = (a + b) / 2` and `std = (b - a) / sqrt(12)`.
+## Prediction chunks
 
-Prediction batch size is a chunking policy, not a prediction-grid size. The grid size comes from `reference_shape`;
-`batch_size.predict` only limits the number of rows evaluated at once.
-
-## Example application DataModule
-
-The following compact heat-equation module owns finite initial, boundary, PDE, and prediction pools:
-
-```python
-from collections.abc import Mapping
-
-import jax
-import numpy as np
-
-from phijax.data import (
-    ChunkedPredictionSource,
-    HostPool,
-    NamedBatchSource,
-    PhiDataModule,
-    RandomRowSampler,
-)
-from phijax.data.datamodule import DataStage
-
-
-class HeatDataModule(PhiDataModule):
-    """Own heat-equation data construction and batching."""
-
-    def __init__(
-        self,
-        batch_size: Mapping[str, int | str],
-        *,
-        seed: int = 42,
-        initial_size: int = 256,
-        boundary_size: int = 256,
-        pde_size: int = 16384,
-        predict_shape: tuple[int, int] = (101, 256),
-    ) -> None:
-        """Store application data policy.
-
-        Args:
-            batch_size: Per-pool training and prediction policies.
-            seed: PDE candidate-pool seed.
-            initial_size: Initial-condition candidate count.
-            boundary_size: Boundary candidate count.
-            pde_size: Interior candidate count.
-            predict_shape: Dense `(time, space)` prediction shape.
-        """
-        super().__init__()
-        self.batch_size = dict(batch_size)
-        self.seed = seed
-        self.initial_size = initial_size
-        self.boundary_size = boundary_size
-        self.pde_size = pde_size
-        self.predict_shape = predict_shape
-
-    def setup(self, stage: DataStage) -> None:
-        """Construct and store immutable application pools.
-
-        Args:
-            stage: Requested `fit` or `predict` stage.
-
-        """
-        if stage not in ("fit", "predict"):
-            raise ValueError("Heat data stage must be `fit` or `predict`.")
-        generator = np.random.default_rng(self.seed)
-        initial_x = np.linspace(0.0, 1.0, self.initial_size, dtype=np.float32)
-        initial_inputs = np.column_stack((np.zeros_like(initial_x), initial_x))
-        initial_targets = np.sin(np.pi * initial_x)[:, None].astype(np.float32)
-
-        boundary_t = np.linspace(0.0, 1.0, self.boundary_size, dtype=np.float32)
-        boundary_x = np.where(np.arange(self.boundary_size) % 2 == 0, 0.0, 1.0).astype(np.float32)
-        boundary_inputs = np.column_stack((boundary_t, boundary_x))
-
-        pde_inputs = generator.uniform(0.0, 1.0, (self.pde_size, 2)).astype(np.float32)
-        times = np.linspace(0.0, 1.0, self.predict_shape[0], dtype=np.float32)
-        positions = np.linspace(0.0, 1.0, self.predict_shape[1], dtype=np.float32)
-        prediction_inputs = np.stack(np.meshgrid(times, positions, indexing="ij"), axis=-1).reshape(-1, 2)
-
-        self.pools = {
-            "initial": self._pool(initial_inputs, initial_targets),
-            "boundary": self._pool(boundary_inputs, np.zeros((self.boundary_size, 1), dtype=np.float32)),
-            "pde": self._pool(pde_inputs, np.zeros((self.pde_size, 0), dtype=np.float32)),
-            "predict": self._pool(
-                prediction_inputs,
-                np.zeros((prediction_inputs.shape[0], 0), dtype=np.float32),
-                reference_shape=self.predict_shape,
-            ),
-        }
-
-    def train_batch_source(
-        self,
-        batch_keys: tuple[str, ...],
-        key: jax.Array,
-    ) -> NamedBatchSource:
-        """Build deterministic finite-row training samplers.
-
-        Args:
-            batch_keys: Objective batch keys.
-            key: Explicit root sampling key.
-
-        Returns:
-            Unprepared global-step-indexed named batch source.
-        """
-        pools = self._require_setup("fit")
-        samplers = {name: RandomRowSampler(pools[name].fields()) for name in batch_keys}
-        sizes = {name: self.batch_size[name] for name in batch_keys}
-        return NamedBatchSource(samplers, sizes, key)
-
-    def predict_batch_source(self) -> ChunkedPredictionSource:
-        """Build a lazy host-backed prediction source.
-
-        Returns:
-            Re-iterable padded prediction source.
-        """
-        size = self.batch_size["predict"]
-        if not isinstance(size, int) or isinstance(size, bool) or size < 1:
-            raise ValueError("Prediction batch size must be a positive integer.")
-        return ChunkedPredictionSource(self.prediction_pool(), size)
-
-    def prediction_pool(self) -> HostPool:
-        """Return the dense ordered prediction pool.
-
-        Returns:
-            Host pool carrying dense reconstruction metadata.
-        """
-        return self._require_setup("predict")["predict"]
-
-    def normalization_pools(self) -> Mapping[str, HostPool]:
-        """Use interior candidates to derive input statistics.
-
-        Returns:
-            Interior PDE pool mapping.
-        """
-        pools = self._require_setup("fit")
-        return {"pde": pools["pde"]}
-
-    @staticmethod
-    def _pool(
-        inputs: np.ndarray,
-        targets: np.ndarray,
-        *,
-        reference_shape: tuple[int, ...] | None = None,
-    ) -> HostPool:
-        """Construct one indexed heat-equation pool.
-
-        Args:
-            inputs: Coordinate rows.
-            targets: Aligned target rows.
-            reference_shape: Optional dense reconstruction shape.
-
-        Returns:
-            Immutable host pool.
-        """
-        row_count = inputs.shape[0]
-        return HostPool(
-            inputs=inputs,
-            targets=targets,
-            aux={},
-            metadata={"coordinate_names": ("t", "x")},
-            reference_shape=reference_shape or (row_count,),
-            flat_index=np.arange(row_count, dtype=np.int64),
-        )
-```
-
-Applications may factor host-only construction into a separate `data.py`, as Burgers does. This keeps geometry
-and file parsing independently testable while the application DataModule remains responsible for lifecycle policy.
-
-## Hydra configuration
-
-Once lifecycle decisions live in the application class, its config contains only meaningful experiment parameters:
+`predict_shape` sets the full prediction grid. `batch_size.predict` sets how many rows are evaluated at once.
 
 ```yaml
-_target_: my_project.applications.heat.HeatDataModule
-
-seed: ${seed}
-initial_size: 256
-boundary_size: 256
-pde_size: 16384
-predict_shape: [101, 256]
-
+predict_shape: [100, 256]
 batch_size:
-  initial: all
-  boundary: 128
-  pde: 4096
   predict: 4096
 ```
 
-Temporary comparisons remain direct:
+This grid has 25,600 points. PhiJAX evaluates it in chunks of at most 4,096 rows.
 
-```bash
-pinn-train experiment=heat_static_1d \
-  data.pde_size=32768 data.batch_size.pde=8192
-```
+## Add a new application
 
-The factory verifies that the configured object implements `PhiDataModule`. The Trainer does not know how any
-pool was created; it only recognizes the generic `prepare(device)` source contract and places each resulting batch.
+1. Create `applications/<name>/data.py` for NumPy data loading and pool construction.
+2. Create `applications/<name>/datamodule.py` and subclass `phijax.DataModule`.
+3. Implement `prepare_data()`, `setup()`, and `train_batch_source()`.
+4. Add prediction hooks when the application supports prediction.
+5. Add a config under `configs/data/`.
+6. Match every objective `batch_key` with a sampler and batch size.
 
-## Reusing array IO inside an application
+Keep file keys, coordinate order, output order, units, and transforms in the application package. The
+[PhiJAX data guide](https://hangjung97.github.io/PhiJAX/guides/datasets/) shows how to create data contracts and
+samplers.
 
-Applications backed by NPZ, MATLAB, or HDF5 artifacts can call these helpers from `setup()`:
+## Test the DataModule
 
-- `load_arrays()` loads `.npz`, classic `.mat`, HDF5-backed `.mat`, `.h5`, `.hdf`, and `.hdf5` artifacts;
-- `get_array()` selects nested fields with slash-delimited keys; and
-- `build_array_pools()` assembles coordinate grids, slices, source fields, constants, auxiliary fields, and finite
-  uniformly sampled pools.
+Use small synthetic arrays. Test:
 
-These are construction utilities, not a framework DataModule. The application remains responsible for deciding which
-file keys matter, how pool names map to objectives, and which sampler each pool uses.
+- pool names and shapes;
+- coordinate and output order;
+- deterministic sampling;
+- fixed and uniform sampling;
+- prediction chunking; and
+- invalid sizes and options.
 
-For example, Burgers uses `build_array_pools()` internally when `data_path` selects its generated reference artifact,
-but exposes only application-level choices such as `data_path`, `pde_sampling`, `pde_size`, and `batch_size` through
-Hydra.
-
-## Sampler choices
-
-PhiJAX provides three immutable explicit-key samplers:
-
-| Class                  | Explicit name    | Behavior                                                                |
-| ---------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `RandomRowSampler`     | `random_rows`    | Select aligned rows from a finite pool; supports the exact `all` policy |
-| `UniformDomainSampler` | `uniform_domain` | Generate fresh continuous coordinates from bounds                       |
-| `SpaceTimeSampler`     | `space_time`     | Combine fixed spatial rows with freshly generated temporal coordinates  |
-
-The implementation keeps three responsibilities separate: `phijax.data.samplers` defines how one batch is selected
-or generated, `phijax.data.sources` delivers named batches over training or prediction, and `phijax.data.batching`
-contains shared batch-size and prediction-layout policies. Public classes and functions are re-exported from
-`phijax.data`.
-
-An application may construct these classes directly or expose a short-name option and call `create_sampler()`. Sampler
-configuration is application policy; it is not required in every data config.
-
-`NamedBatchSource` initially owns host-backed sampler definitions. Before fitting, the Trainer prepares persistent
-candidate arrays, domain bounds, templates, and the root key once on the Strategy's process-local root device. Sampling
-and generated-coordinate construction then remain device-side. The Trainer still applies final precision conversion
-and data-parallel sharding to every produced batch.
-
-The source folds its root key with the global optimizer step. Repeating one step is deterministic, and a resumed run
-continues the same sampling sequence from its restored global step.
-
-`ChunkedPredictionSource` is a finite re-iterable source. It keeps the full prediction pool on the host, slices and pads
-one fixed-size chunk at a time, and exposes the original pool through `source.pool` for dense reconstruction. The
-Trainer transfers each yielded chunk immediately before prediction, avoiding eager placement of a large prediction
-grid. Following Lightning's prediction loop, PhiJAX copies each valid output chunk back to the host before retaining
-it. The default `PredictionWriter` receives this pool and the final concatenated outputs through `PredictionContext`.
-Keep `return_predictions=True` when using that writer. A custom streaming callback may instead write every batch from
-`on_predict_batch_end`; use `return_predictions=False` only in that streaming case to avoid retaining the complete
-output.
-
-## Testing an application DataModule
-
-At minimum, test:
-
-- valid `fit` and `predict` setup stages;
-- pool names, coordinate order, target order, shapes, and dtypes;
-- deterministic pool generation for equal seeds;
-- initial and boundary values;
-- finite sampler alignment and exact `all` behavior;
-- generated sampler bounds when used;
-- prediction padding and dense reconstruction order;
-- empirical or exact input-statistics policy; and
-- invalid sizes, bounds, stages, and prediction chunk sizes.
-
-Use synthetic CPU-sized fixtures. Ordinary tests must not download data, require a GPU, or generate the full numerical
-reference artifact.
+The tests under `tests/unit/applications/burgers/` show this pattern.

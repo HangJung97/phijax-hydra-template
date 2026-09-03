@@ -1,327 +1,195 @@
-# Connecting an application with Hydra
+# Compose configs with Hydra
 
-PhiJAX's entrypoints assemble applications from Hydra config groups. Python code defines reusable behavior; YAML
-selects implementations and records experiment policy.
+Hydra combines small YAML files into one config. Python defines application behavior. YAML selects the experiment and
+run settings. The three commands then build the selected PhiJAX objects.
 
-This guide connects the heat dataset and objective from the preceding guides into a runnable experiment.
+## Configuration groups
 
-## What the entrypoint reads
+| Group or field                    | Responsibility                                                   |
+| --------------------------------- | ---------------------------------------------------------------- |
+| `application`                     | Coordinate, output, and application metadata                     |
+| `data`                            | Application DataModule and sampling policy                       |
+| `model.net`                       | Public PhiJAX model factory and architecture                     |
+| `model.module`                    | Public `PhiModule` target                                        |
+| `model.objective`                 | Objective terms, equations, and batch names                      |
+| `model.balancer`                  | Loss balancer and update interval                                |
+| `model.scheduler` and `optimizer` | Optax schedule and optimizer                                     |
+| `callbacks`                       | Active checkpoint, progress, monitoring, and prediction services |
+| `logger`                          | Local CSV by default, or console, TensorBoard, W&B, or `null`    |
+| `trainer`                         | Devices, precision, step count, and logging interval             |
+| `paths` and `hydra`               | Artifact paths and run directories                               |
+| `experiment`                      | A complete set of choices for one experiment                     |
+| `hparams_search`                  | Optional sweeper, objective metric, and search ranges            |
+| `local`                           | Ignored machine-specific overrides loaded last when present      |
 
-The training entrypoint, factory, and compiled-step assembly consume these paths:
+## Complete experiment selection
 
-| Config path                      | Runtime use                                                            |
-| -------------------------------- | ---------------------------------------------------------------------- |
-| `application.name`               | Human-readable module display identity                                 |
-| `data`                           | Instantiated into an application-defined `PhiDataModule`               |
-| `data.<application fields>`      | Passed directly to that application's DataModule                       |
-| `data.batch_size`                | Application sampling sizes and deterministic prediction chunk size     |
-| `model.net`                      | Instantiated with an explicit model key and trainer precision          |
-| `model.objective`                | Instantiated into the objective owned by `PhiModule`                   |
-| `model.module`                   | Instantiated with runtime model and objective objects                  |
-| `model.balancer.factory`         | Instantiated with objective `loss_names` injected by the factory       |
-| `model.balancer.update`          | Optional host schedule for NTK or gradient-norm refreshes              |
-| `model.scheduler`                | Instantiated before the optimizer through recursive Hydra construction |
-| `model.optimizer`                | Instantiated into an Optax gradient transformation                     |
-| `trainer`, `callbacks`, `logger` | Instantiated into host-side runtime services                           |
-
-The most important cross-group invariant is:
-
-```text
-objective term batch_key == returned training pool name == data.batch_size key
-```
-
-The application DataModule chooses how each training pool is sampled. Network `input_dim` must match every pool's
-input width. Output indices used by equations must be smaller than `model.net.output_dim`.
-
-## 1. Describe the application
-
-Create `src/pinn_project/configs/application/heat.yaml`:
-
-```yaml
-name: heat
-description: One-dimensional heat equation with homogeneous Dirichlet boundaries.
-# These names document exact array order; they do not reorder arrays automatically.
-coordinate_names: [t, x]
-output_names: [u]
-```
-
-## 2. Select model components
-
-Create `src/pinn_project/configs/model/heat_pinn_1d.yaml`:
-
-```yaml
-defaults:
-  - module: phi_module
-  - net: mlp
-  - objective: heat_1d
-  - balancer: static
-  - scheduler: constant
-  - optimizer: adamw
-  - _self_
-
-net:
-  input_dim: 2
-  output_dim: 1
-  output_names: [u]
-  hidden: [128, 128, 128, 128]
-  activation: tanh
-  input_norm: true
-```
-
-Each entry in this defaults list is packaged below `model`. Therefore the composed paths are
-`model.module`, `model.net`, `model.objective`, `model.balancer`, `model.scheduler`, and `model.optimizer`.
-
-The base MLP config contains required `???` values for dimensions and hidden widths. The parent model config resolves
-them after composition.
-
-## 3. Create the experiment
-
-Create `src/pinn_project/configs/experiment/heat_static_1d.yaml`:
+`burgers_grad_norm_1d.yaml` selects every group needed for a runnable experiment:
 
 ```yaml
 # @package _global_
-
 defaults:
-  - override /application: heat
-  - override /data: heat_1d
-  - override /model: heat_pinn_1d
-  - override /model/objective: heat_1d
-  - override /model/balancer: static
-  - override /model/scheduler: constant
+  - override /application: burgers
+  - override /data: burgers_1d
+  - override /model: burgers_pinn_1d
+  - override /model/objective: burgers_1d
+  - override /model/balancer: grad_norm
+  - override /model/scheduler: warmup_exp_decay
+  - override /callbacks: burgers
   - _self_
 
-task_name: heat_static_1d
+task_name: burgers_grad_norm_1d
+tags: [burgers, grad_norm]
 seed: 42
-bootstrap_only: false
-
-trainer:
-  max_steps: 20000
-  log_every_n_steps: 100
-  accelerator: auto
-  precision: 32-true
-  # Optional JAX dot/convolution policy; `null` preserves the external default.
-  matmul_precision: null
-
-model:
-  balancer:
-    factory:
-      weights:
-        initial/u: 1.0
-        boundary/u: 1.0
-        pde/heat: 1.0
-
-callbacks:
-  model_checkpoint:
-    every_n_steps: 5000
 ```
 
-`# @package _global_` makes these values override the root training configuration. Absolute defaults paths beginning
-with `/` avoid resolving relative to the `experiment` group.
+Run it with:
 
-The experiment repeats important component selections even when the model config already has defaults. This makes the
-reproducible numerical policy visible from one file and lets Hydra reject missing groups early.
+```bash
+phijax-train experiment=burgers_grad_norm_1d
+```
 
-## Defaults ordering
+Use command-line overrides to change a setting without editing Python:
 
-The root `train.yaml` loads:
+```bash
+phijax-train experiment=burgers_grad_norm_1d \
+  data=burgers_analytic_1d \
+  model/balancer=static \
+  trainer.accelerator=cpu \
+  trainer.max_steps=10
+```
 
-1. its own bootstrap values;
-2. optional application, data, and model groups;
-3. callbacks, logger, trainer, paths, extras, and Hydra policy;
-4. the selected experiment; and
-5. an optional local machine override.
+## Defaults order
 
-Because the experiment loads near the end, its global overrides turn bootstrap mode into a complete run. A private
-`local/default.yaml` can still change machine-specific paths or accelerator selection without modifying the recorded
-experiment.
+Hydra applies later defaults after earlier ones. The root config loads the application, data, and model first. It then
+loads shared services, the experiment, and optional local settings. Within one file, `_self_` sets when that file's
+values are applied.
 
-Within one config, `_self_` controls when that file's own values are applied relative to its defaults. PhiJAX model
-and experiment configs put `_self_` last so local values override the selected reusable group defaults.
+Keep `_self_` in root, model, callback-suite, and experiment configs. Use `override /group: option` inside an
+experiment so readers can see which option it selects.
 
-## Hydra instantiation keywords
+## Public targets
 
-PhiJAX uses standard Hydra object construction:
-
-| Key                   | Meaning                                                              |
-| --------------------- | -------------------------------------------------------------------- |
-| `_target_`            | Import path of the class or function to construct                    |
-| `_partial_: true`     | Return a partial callable instead of invoking the target immediately |
-| `???`                 | Mandatory value that must be supplied by composition or an override  |
-| `null`                | Python `None`; often disables an optional behavior                   |
-| `${seed}`             | Interpolate another config value                                     |
-| `${paths.output_dir}` | Use the current Hydra run directory                                  |
-
-Do not configure `loss_names` inside a balancer factory. The training factory injects names from the instantiated
-objective so weights and diagnostics always use the same ordering.
-
-## OmegaConf resolvers
-
-PhiJAX entrypoints register a small set of reusable OmegaConf resolvers before Hydra composes the configuration:
-
-| Resolver     | Purpose                                       | Example                                      |
-| ------------ | --------------------------------------------- | -------------------------------------------- |
-| `math`       | Read or call a public Python `math` attribute | `${math:pi}`, `${math:sqrt,4}`               |
-| `op`         | Apply a public Python `operator` function     | `${op:truediv,0.01,${math:pi}}`              |
-| `op.ternary` | Select between two resolved values            | `${op.ternary:${debug},small,large}`         |
-| `tuple`      | Construct a tuple instead of a list           | `${tuple:1,2,3}`                             |
-| `call`       | Invoke a callable by dotted import path       | `${call:os.path.basename,${paths.root_dir}}` |
-| `assert`     | Raise for a false configuration condition     | `${assert:${op:gt,${trainer.max_steps},0}}`  |
-
-For example, a Burgers objective can retain the physical expression instead of embedding a decimal approximation:
+Use public package exports in Hydra targets:
 
 ```yaml
-viscosity_coefficient: ${op:truediv,0.01,${math:pi}}
+trainer:
+  _target_: phijax.Trainer
+
+model:
+  module:
+    _target_: phijax.PhiModule
+  net:
+    _target_: phijax.models.build_mlp
+  objective:
+    _target_: phijax.objectives.CompositeObjective.from_equations
 ```
 
-The `call` resolver imports and executes Python code, just like Hydra's `_target_` mechanism. Treat configuration files
-as trusted executable project inputs.
+Callbacks, balancers, equations, and evaluators follow the same pattern through `phijax.callbacks`,
+`phijax.balancers`, `phijax.equations`, and `phijax.evaluation`.
 
-The `pinn-train`, `pinn-predict`, and `pinn-evaluate` entrypoints register these resolvers
-automatically. Code that calls Hydra's programmatic composition API directly must register them first:
+The template provides AdamW, Adam, and SGD optimizer configs. AdamW is the model default. Select another optimizer
+without changing Python:
+
+```bash
+phijax-train experiment=burgers_grad_norm_1d model/optimizer=adam
+phijax-train experiment=burgers_grad_norm_1d model/optimizer=sgd
+```
+
+The training entrypoint passes the model factory, objective, DataModule, optimizer, and balancer to `Trainer.fit()`.
+PhiJAX then initializes the model and training state, finds the required batch keys, and manages DataModule setup.
+
+Callback and logger entries are active when present. They do not use an `enabled` field. Omit an entry in a callback
+suite or delete it for one run:
+
+```bash
+phijax-train experiment=burgers_grad_norm_1d '~callbacks.model_checkpoint'
+```
+
+The default logger writes to `phijax_logs/version_0/` inside the Hydra output directory. Use `logger=null` to disable
+it, and remove `callbacks.lr_monitor` in the same run because that callback requires a logger.
+
+## Resolvers
+
+Import the project config package before composing configs in Python. Its initializer registers PhiJAX's OmegaConf
+resolvers:
 
 ```python
-from phijax.configs import register_omegaconf_resolvers
+from phijax_hydra_template.configs import register_omegaconf_resolvers
 
 register_omegaconf_resolvers()
 ```
 
-## Validate composition
+The template uses resolvers for math, choices, and Hydra run paths. Treat configs as trusted input because `_target_`
+and callable resolvers can import Python objects.
 
-Inspect the fully composed tree without starting training:
+## Inspect the composed config
+
+Use Hydra's built-in flags to resolve and print the job config without running training:
 
 ```bash
-pinn-train experiment=heat_static_1d bootstrap_only=true
+phijax-train experiment=burgers_grad_norm_1d --cfg job --resolve
 ```
 
-The experiment normally sets `bootstrap_only=false`; the command-line override restores validation-only behavior.
-Check that the Rich config tree contains:
-
-```text
-application.name: heat
-data.name: heat_1d
-model.net.input_dim: 2
-model.objective.terms.initial.batch_key: initial
-model.objective.terms.boundary.batch_key: boundary
-model.objective.terms.pde.batch_key: pde
-model.balancer.name: static
-```
-
-Add a composition test:
+Add a programmatic test for every new experiment:
 
 ```python
 from pathlib import Path
 
 from hydra import compose, initialize_config_dir
-from hydra.utils import instantiate
 
 
-def test_heat_experiment_composes() -> None:
-    """Verify the heat experiment connects data, model, and objective groups."""
-    config_dir = Path(__file__).parents[2] / "src" / "phijax" / "configs"
+def test_experiment_composes() -> None:
+    """Verify the experiment selects a complete runtime policy."""
+    config_dir = Path(__file__).parents[2] / "src" / "phijax_hydra_template" / "configs"
     with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
-        config = compose(config_name="train", overrides=["experiment=heat_static_1d"])
+        config = compose(config_name="train", overrides=["experiment=burgers_grad_norm_1d"])
 
-    objective = instantiate(config.model.objective)
-    data_module = instantiate(config.data)
-    data_module.prepare_data()
-    data_module.setup("fit")
-    pools = data_module.pools
-
-    assert config.bootstrap_only is False
-    assert config.model.net.input_dim == pools["predict"].inputs.shape[1]
-    assert objective.loss_names == ("initial/u", "boundary/u", "pde/heat")
-    assert {term.batch_key for term in objective.terms.values()} <= set(pools)
-    assert {term.batch_key for term in objective.terms.values()} <= set(config.data.batch_size)
-    assert "predict" in pools
-    assert int(config.data.batch_size.predict) > 0
+    assert config.task_name == "burgers_grad_norm_1d"
+    assert config.data._target_ == "phijax_hydra_template.applications.burgers.BurgersDataModule"
+    assert config.model.module._target_ == "phijax.PhiModule"
 ```
 
-## Run and override the experiment
+## Hyperparameter search
 
-Train with the recorded defaults:
+The included Optuna config searches scalar settings in the Burgers experiment:
 
 ```bash
-pinn-train experiment=heat_static_1d
+phijax-train -m experiment=burgers_grad_norm_1d hparams_search=burgers_optuna
 ```
 
-Use command-line overrides for temporary comparisons:
+`optimized_metric` names the final PhiJAX metric returned to Optuna. The example searches the scheduler's peak learning
+rate from `1e-4` to `1e-2` on a logarithmic scale. It minimizes `train/loss`, runs trials one at a time, and omits
+experiment logging, prediction, and checkpoint writing during the search. Its search ranges live in
+`src/phijax_hydra_template/configs/hparams_search/burgers_optuna.yaml`.
+
+Use overrides for a short test of the workflow:
 
 ```bash
-# Change the PDE coefficient in both generated reference targets and the residual.
-pinn-train experiment=heat_static_1d \
-  data.diffusivity=0.05 \
-  model.objective.terms.pde.residual_fn.diffusivity=0.05
-
-# Replace fixed weights with gradient-norm balancing.
-pinn-train experiment=heat_static_1d \
-  model/balancer=grad_norm
-
-# Train and immediately predict from the final in-memory state.
-pinn-train experiment=heat_static_1d predict=true
+phijax-train -m \
+  experiment=burgers_grad_norm_1d \
+  hparams_search=burgers_optuna \
+  hydra.sweeper.n_trials=2 \
+  trainer.max_steps=10
 ```
 
-When one physical parameter appears in several groups, consider defining it once at the experiment root and
-interpolating it from both data and objective configs. This prevents a reference generator and residual function from
-silently using different values.
+Optuna writes `optimization_results.yaml` in the timestamped Hydra multirun directory. Copy the best parameter values
+into an experiment config before running the complete training and prediction workflow.
 
-## Standalone prediction
+## Prediction and evaluation
 
-Prediction must compose the same application, data, network, objective, optimizer, and balancer structure used to
-create the full-state Orbax checkpoint:
+Standalone prediction composes the same experiment used for training and restores a PhiJAX checkpoint:
 
 ```bash
-pinn-predict experiment=heat_static_1d \
-  ckpt_path=/path/to/training/run/checkpoints \
-  output_dir=/path/to/predictions \
-  save_file_name=heat_solution
+phijax-predict experiment=burgers_grad_norm_1d ckpt_path=/path/to/checkpoints
 ```
 
-PhiJAX constructs this compatible restore template without building a training batch source, compiled optimizer step,
-or adaptive-balancer diagnostic batches. Changing parameter-tree, optimizer-state, or balancer-state structure makes
-the checkpoint template incompatible. Changing only prediction chunk size is safe:
+Evaluate the resulting canonical artifact without constructing JAX training components:
 
 ```bash
-pinn-predict experiment=heat_static_1d \
-  ckpt_path=/path/to/checkpoints \
-  data.batch_size.predict=1024
+phijax-evaluate predictions=/path/to/burgers_1d.npz
 ```
 
-An optional MATLAB sidecar can be enabled without changing the checkpoint or prediction batches:
-
-```bash
-pinn-predict experiment=heat_static_1d \
-  ckpt_path=/path/to/checkpoints \
-  callbacks.prediction_writer.save_mat=true
-```
-
-The `.mat` file is written below `output_dir` with the same suffix-free `save_file_name`. Applications may define
-`application.mat_field_names` to translate generic keys such as `prediction`, named output channels, or nested metadata
-fields into downstream MATLAB conventions. The prediction writer applies application-provided `output_scales` to both
-NPZ and MATLAB predictions and references, and both formats retain the applied scales. MATLAB groups structural and
-application metadata inside a `metadata` struct.
-
-Saving is performed by the standard prediction writer callback:
-
-```yaml
-callbacks:
-  prediction_writer:
-    save_mat: true
-```
-
-The default fitting suite contains the same writer under `callbacks.prediction_writer`, enabled only when
-`predict=true`. After fitting, the existing Trainer asks the DataModule to set up its prediction stage and reuses the
-final in-memory model state. Returning `None` from `predict_batch_source()` skips prediction. A graceful `Ctrl+C` stops
-fitting at the last completed state and continues into prediction; `SIGTERM` terminates the complete run.
-
-## Common composition failures
-
-| Symptom                            | Likely cause                                                       |
-| ---------------------------------- | ------------------------------------------------------------------ |
-| Missing mandatory value            | A required MLP field or prediction checkpoint remains `???`        |
-| Missing pool or batch-size key     | A term's `batch_key` is absent from pools or `data.batch_size`     |
-| Residual-group count error         | Equation outer groups do not align with inferred or explicit names |
-| Unknown Hydra override             | Wrong config-group path or a missing `+` for a new field           |
-| Checkpoint restore structure error | Prediction composed a different model architecture                 |
-| Repeated JAX compilation           | Batch shapes or PyTree structure change between iterations         |
-
-Prefer adding a focused Hydra composition test whenever a new config group or experiment is introduced.
+Machine-specific data roots and accelerator choices belong in ignored
+`src/phijax_hydra_template/configs/local/default.yaml`, copied from `local/example.yaml`. Never put credentials in a
+Hydra config because resolved configuration may be printed and saved.
