@@ -76,6 +76,9 @@ uv sync --extra tensorboard
 # uv sync --extra cuda12 --extra tensorboard
 # uv sync --extra cuda13 --extra tensorboard
 
+# experimental TPU support; use instead of a CUDA extra
+# uv sync --extra tpu --extra tensorboard
+
 # activate the virtual environment
 source .venv/bin/activate
 
@@ -481,10 +484,12 @@ Create or update `.venv` from `pyproject.toml` and `uv.lock`:
 uv sync
 ```
 
-Add only one CUDA extra, together with any integrations you need:
+Add only one accelerator extra, together with any integrations you need:
 
 ```bash
 uv sync --extra cuda12 --extra wandb
+# or, for experimental TPU support
+uv sync --extra tpu --extra wandb
 ```
 
 Install the optional notebook environment with:
@@ -570,7 +575,8 @@ This project uses [PhiJAX](https://github.com/HangJung97/PhiJAX) with Hydra and 
    cd your-repo-name
    ```
 
-2. Create `.venv` and install the project. The base environment uses the CPU. For NVIDIA, add exactly one CUDA extra:
+2. Create `.venv` and install the project. The base environment uses the CPU. For an accelerator, add exactly one
+   runtime extra:
 
    ```bash
    # install the CPU environment with TensorBoard support
@@ -580,6 +586,9 @@ This project uses [PhiJAX](https://github.com/HangJung97/PhiJAX) with Hydra and 
    uv sync --extra cuda12 --extra tensorboard
    # or
    uv sync --extra cuda13 --extra tensorboard
+
+   # experimental TPU support; use instead of a CUDA extra
+   uv sync --extra tpu --extra tensorboard
    ```
 
    Add W&B as another optional extra:
