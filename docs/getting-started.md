@@ -23,6 +23,15 @@ uv sync --locked --extra cuda13
 source .venv/bin/activate
 ```
 
+TPU support is experimental. On a TPU machine, install the JAX TPU runtime instead of a CUDA runtime:
+
+```bash
+uv sync --locked --extra tpu
+source .venv/bin/activate
+```
+
+Install at most one of `cuda12`, `cuda13`, and `tpu` in an environment.
+
 ## Run the notebook
 
 Install the optional Jupyter environment and open the guided Burgers example from the project root:

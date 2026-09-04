@@ -27,6 +27,7 @@ phijax-train = "phijax_hydra_template.train:main"
 # Install at most one accelerator extra.
 cuda12 = ["phijax[cuda12]==0.2.0b4"]
 cuda13 = ["phijax[cuda13]==0.2.0b4"]
+tpu = ["phijax[tpu]==0.2.0b4"]
 # Interactive environment for running and validating the included notebook.
 jupyter = ["ipykernel>=7,<8", "jupyterlab>=4,<5", "nbconvert>=7,<8"]
 tensorboard = ["phijax[tensorboard]==0.2.0b4"]
@@ -49,7 +50,7 @@ test = ["pytest>=9,<10", "pytest-cov>=7,<8"]
 [tool.uv]
 required-version = ">=0.12,<0.13"
 # JAX accelerator plugins cannot be installed together in one environment.
-conflicts = [[{ extra = "cuda12" }, { extra = "cuda13" }]]
+conflicts = [[{ extra = "cuda12" }, { extra = "cuda13" }, { extra = "tpu" }]]
 
 [tool.uv.build-backend]
 module-name = "phijax_hydra_template"

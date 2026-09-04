@@ -26,7 +26,7 @@ consider contribute it to PhiJAX. Follow the upstream repository instructions wh
 ## Environment and validation
 
 - Use Python 3.12 or newer and `uv` for environment and command execution.
-- Install the CPU environment with `uv sync`. Select at most one CUDA extra when an accelerator is required.
+- Install the CPU environment with `uv sync`. Select at most one accelerator extra when a GPU or TPU is required.
 - Keep ordinary validation CPU-only, synthetic, and independent of networks, external services, and research datasets.
 - Run the complete project validation suite:
 
