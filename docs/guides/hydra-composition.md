@@ -1,7 +1,8 @@
 # Compose configs with Hydra
 
-Hydra combines small YAML files into one config. Python defines application behavior. YAML selects the experiment and
-run settings. The three commands then build the selected PhiJAX objects.
+Python defines the data, model, and training logic. YAML files select these parts and set options such as the learning
+rate. Hydra combines the YAML files into one config. The training, prediction, and evaluation commands use this config
+to build the objects they need.
 
 ## Configuration groups
 
