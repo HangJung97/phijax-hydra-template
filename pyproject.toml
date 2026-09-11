@@ -10,8 +10,9 @@ dependencies = [
   "hydra-colorlog==1.2.0",
   "hydra-optuna-sweeper>=1.2.0,<2",
   "matplotlib>=3.10,<4",
-  "phijax==0.2.0b4",
+  "phijax==0.2.0b5",
   "scipy>=1.17,<2",
+  "soap-jax",
 ]
 
 [project.urls]
@@ -25,13 +26,13 @@ phijax-train = "phijax_hydra_template.train:main"
 
 [project.optional-dependencies]
 # Install at most one accelerator extra.
-cuda12 = ["phijax[cuda12]==0.2.0b4"]
-cuda13 = ["phijax[cuda13]==0.2.0b4"]
-tpu = ["phijax[tpu]==0.2.0b4"]
+cuda12 = ["phijax[cuda12]==0.2.0b5"]
+cuda13 = ["phijax[cuda13]==0.2.0b5"]
+tpu = ["phijax[tpu]==0.2.0b5"]
 # Interactive environment for running and validating the included notebook.
 jupyter = ["ipykernel>=7,<8", "jupyterlab>=4,<5", "nbconvert>=7,<8"]
-tensorboard = ["phijax[tensorboard]==0.2.0b4"]
-wandb = ["phijax[wandb]==0.2.0b4"]
+tensorboard = ["phijax[tensorboard]==0.2.0b5"]
+wandb = ["phijax[wandb]==0.2.0b5"]
 
 [build-system]
 requires = ["uv_build>=0.12,<0.13"]
@@ -51,6 +52,9 @@ test = ["pytest>=9,<10", "pytest-cov>=7,<8"]
 required-version = ">=0.12,<0.13"
 # JAX accelerator plugins cannot be installed together in one environment.
 conflicts = [[{ extra = "cuda12" }, { extra = "cuda13" }, { extra = "tpu" }]]
+
+[tool.uv.sources]
+soap-jax = { git = "https://github.com/HangJung97/SOAP_JAX", rev = "3c3aafe6b8fd477bf634020ec5d44f1431175ab6" }
 
 [tool.uv.build-backend]
 module-name = "phijax_hydra_template"
