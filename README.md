@@ -54,7 +54,7 @@ The project layout and experiment-config workflow are inspired by the
 
 ## Limitations
 
-- PhiJAX `0.2.0b4` is a beta release. Review the [PhiJAX changelog](https://hangjung97.github.io/PhiJAX/changelog/)
+- PhiJAX `0.2.0b5` is a beta release. Review the [PhiJAX changelog](https://hangjung97.github.io/PhiJAX/changelog/)
   before upgrading.
 - PhiJAX may not yet provide every framework component required by your use case.
 - Burgers is the only ready-to-run application. New physics and data formats still need application code and tests.

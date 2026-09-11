@@ -86,6 +86,7 @@ def test_burgers_experiment_composes_complete_runtime_policy(config_dir: Path) -
         ("adamw", "optax.adamw", 0.9, 0.01),
         ("adam", "optax.adam", 0.9, 0.0),
         ("sgd", "optax.sgd", 0.9, 0.0),
+        ("soap", "soap_jax.soap", 0.9, 0.0),
     ],
 )
 def test_optimizer_configs_compose_with_monitor_metadata(

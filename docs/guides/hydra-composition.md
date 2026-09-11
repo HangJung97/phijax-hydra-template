@@ -88,13 +88,17 @@ model:
 Callbacks, balancers, equations, and evaluators follow the same pattern through `phijax.callbacks`,
 `phijax.balancers`, `phijax.equations`, and `phijax.evaluation`.
 
-The template provides AdamW, Adam, and SGD optimizer configs. AdamW is the model default. Select another optimizer
+The template provides AdamW, Adam, SGD, and SOAP optimizer configs. AdamW is the model default. Select another optimizer
 without changing Python:
 
 ```bash
 phijax-train experiment=burgers_grad_norm_1d model/optimizer=adam
 phijax-train experiment=burgers_grad_norm_1d model/optimizer=sgd
+phijax-train experiment=burgers_grad_norm_1d model/optimizer=soap
 ```
+
+SOAP uses the pinned [SOAP_JAX fork](https://github.com/HangJung97/SOAP_JAX) installed by `uv sync`. Its learning
+rate follows `model.scheduler`; preconditioners refresh every 10 steps by default.
 
 The training entrypoint passes the model factory, objective, DataModule, optimizer, and balancer to `Trainer.fit()`.
 PhiJAX then initializes the model and training state, finds the required batch keys, and manages DataModule setup.

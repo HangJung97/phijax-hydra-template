@@ -1,0 +1,29 @@
+# Public SOAP optimizer factory called by Hydra.
+_target_: soap_jax.soap
+# The composed scheduler is callable and evaluated from Optax's optimizer-state counter.
+learning_rate: ${model.scheduler}
+# Exponential decay coefficient for the first gradient moment (momentum).
+b1: 0.9
+# Exponential decay coefficient for the second gradient moment (squared gradients).
+b2: 0.999
+# Preconditioner moving-average decay; -1 reuses b2, otherwise use a value in [0, 1).
+shampoo_beta: -1
+# Stabilize the denominator when scaling updates by the second moment.
+eps: 1.0e-8
+# Decoupled parameter weight decay coefficient; 0 disables weight decay.
+weight_decay: 0.0
+# Correct the bias caused by initializing the first and second moments to zero.
+correct_bias: true
+# Refresh the preconditioner's eigenbasis every this many optimizer steps.
+precondition_frequency: 10
+# Skip preconditioning along parameter axes larger than this dimension to limit memory use.
+max_precond_dim: 10000
+# Precondition vector parameters; false uses Adam-style updates for these parameters.
+precondition_1d: false
+# Inherit trainer.matmul_precision, or JAX's global setting when the trainer leaves it unset.
+# Explicit null overrides SOAP's highest default; matrix-product precision does not change array dtypes.
+precision: null
+# First and second moment dtype; null inherits each parameter's dtype (float32 by default).
+mu_dtype: null
+# Eigen/QR computation and preconditioner storage dtype; null inherits each parameter's dtype.
+qr_dtype: null

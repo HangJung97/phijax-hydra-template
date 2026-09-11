@@ -11,7 +11,7 @@ uv sync --locked
 source .venv/bin/activate
 ```
 
-The project requires Python 3.12 or newer and uses `phijax==0.2.0b4`.
+The project requires Python 3.12 or newer and uses `phijax==0.2.0b5`.
 
 For an NVIDIA GPU, install exactly one JAX CUDA runtime before activating the environment:
 
