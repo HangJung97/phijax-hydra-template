@@ -45,7 +45,7 @@ dev = [
   { include-group = "lint" },
   { include-group = "test" },
 ]
-lint = ["docformatter>=1.7.5,<2", "pyright>=1.1.405,<2", "ruff>=0.16,<0.17"]
+lint = ["docformatter>=1.7.5,<2", "pyright>=1.1.405,<2", "ruff>=0.17,<0.18"]
 test = ["pytest>=9,<10", "pytest-cov>=7,<8"]
 
 [tool.uv]
