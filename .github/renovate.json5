@@ -1,0 +1,34 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: ['config:recommended'],
+  'pre-commit': { enabled: true },
+  pyenv: { enabled: false },
+  packageRules: [
+    {
+      description: 'Update the PhiJAX pin and all PhiJAX extras together.',
+      groupName: 'PhiJAX',
+      matchPackageNames: ['phijax'],
+    },
+    {
+      groupName: 'Ruff',
+      matchPackageNames: ['ruff', 'astral-sh/ruff-pre-commit'],
+    },
+    {
+      description: 'Schedule renovatebot/pre-commit-hooks updates monthly.',
+      matchPackageNames: ['renovatebot/pre-commit-hooks'],
+      schedule: ['* 0-3 1 * *'],
+    },
+    {
+      description: 'Disable patch bumps for frequently updated pre-commit hooks.',
+      matchPackageNames: ['astral-sh/ruff-pre-commit', 'rbubley/mirrors-prettier'],
+      matchUpdateTypes: ['patch'],
+      enabled: false,
+    },
+    {
+      description: 'Disable minor and patch bumps for immutable setup-uv action tags.',
+      matchPackageNames: ['astral-sh/setup-uv'],
+      matchUpdateTypes: ['minor', 'patch'],
+      enabled: false,
+    },
+  ],
+}
