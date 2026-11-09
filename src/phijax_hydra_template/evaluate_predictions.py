@@ -41,7 +41,7 @@ def hydra_main(cfg: DictConfig) -> None:
 
 def main() -> None:
     """Configure the repository environment and invoke the Hydra evaluation entrypoint."""
-    pre_hydra_routine()
+    pre_hydra_routine(__file__)
     hydra_main()
 
 

@@ -7,6 +7,8 @@ import pytest
 from hydra import compose, initialize_config_dir
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
+from phijax.callbacks import ModelCheckpoint
+from phijax.integrations.hydra import instantiate_model_factory
 from phijax.objectives import CompositeObjective, ResidualTerm
 
 from phijax_hydra_template.configs import import_from_module
@@ -106,6 +108,51 @@ def test_burgers_schedule_warms_up_then_decays_to_the_final_rate(
     schedule = instantiate(scheduler)
     assert float(schedule(warmup_steps)) == pytest.approx(scheduler.peak_value)
     assert float(schedule(max_steps)) == pytest.approx(scheduler.peak_value * scheduler.decay_rate)
+
+
+@pytest.mark.parametrize(("callbacks", "save_top_k"), [("default", 3), ("burgers", 2)])
+def test_checkpoint_callbacks_keep_the_most_recent_steps(
+    config_dir: Path,
+    tmp_path: Path,
+    callbacks: str,
+    save_top_k: int,
+) -> None:
+    """Verify checkpoint retention ranks committed checkpoints by step in `ModelCheckpoint`.
+
+    Args:
+        config_dir: Project Hydra config directory.
+        tmp_path: Temporary checkpoint output root.
+        callbacks: Callback group selected for the experiment.
+        save_top_k: Expected number of retained checkpoints.
+    """
+    with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
+        config = compose(
+            config_name="train",
+            overrides=["experiment=burgers_grad_norm_1d", f"callbacks={callbacks}", f"paths.output_dir={tmp_path}"],
+        )
+
+    assert "total" not in config.callbacks.rich_progress_bar
+    assert "max_to_keep" not in config.callbacks.model_checkpoint.checkpoint_io
+    callback = instantiate(config.callbacks.model_checkpoint)
+    assert isinstance(callback, ModelCheckpoint)
+    assert (callback.monitor, callback.mode, callback.save_top_k) == ("step", "max", save_top_k)
+
+
+def test_burgers_model_embeds_x_with_period_two(config_dir: Path) -> None:
+    """Verify the Burgers network replaces `x` by periodic features with period 2 on `[-1, 1]`.
+
+    Args:
+        config_dir: Project Hydra config directory.
+    """
+    with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
+        config = compose(
+            config_name="train",
+            overrides=["experiment=burgers_grad_norm_1d", "model.net.hidden=[2]", "model.net.fourier_features=false"],
+        )
+
+    factory = instantiate_model_factory(config.model.net)
+    model = factory(key=jax.random.key(0), input_mean=None, input_std=None, input_periods=None, precision="32-true")
+    assert model.input_periods == ((1, 2.0),)
 
 
 @pytest.mark.parametrize(

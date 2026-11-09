@@ -1,17 +1,14 @@
 from pathlib import Path
 
 import hydra
-import jax
 from omegaconf import DictConfig, OmegaConf
 from phijax import PhiModule
 from phijax.integrations.hydra import (
     build_trainer,
-    instantiate_balancer,
     instantiate_data_module,
     instantiate_model_factory,
     instantiate_module,
     instantiate_objective,
-    instantiate_optimizer,
 )
 from phijax.utils import RankedLogger, extras, pre_hydra_routine, task_wrapper
 
@@ -20,7 +17,10 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 @task_wrapper
 def predict(cfg: DictConfig) -> Path:
-    """Restore a composed experiment, run prediction, and save a dense artifact.
+    """Rebuild a composed experiment's model from a checkpoint, run prediction, and save a dense artifact.
+
+    The Trainer builds the model with the input statistics and periods stored in the checkpoint and restores only the
+    model state, so prediction needs no optimizer, balancer, or training seed.
 
     Args:
         cfg: Hydra prediction configuration containing an experiment, checkpoint root, and artifact destination.
@@ -38,7 +38,6 @@ def predict(cfg: DictConfig) -> Path:
             "`phijax-predict experiment=<name> ckpt_path=/path/to/checkpoints`.",
         )
     checkpoint_step = cfg.get("ckpt_step")
-    model_key, runtime_key, sampling_key, balancer_key = jax.random.split(jax.random.key(int(cfg.seed)), 4)
     log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
     trainer = build_trainer(cfg)
     writer = trainer.prediction_writer
@@ -60,39 +59,7 @@ def predict(cfg: DictConfig) -> Path:
     )
     if not isinstance(module, PhiModule):
         raise TypeError("The standard prediction entrypoint requires `phijax.PhiModule` or a subclass.")
-    log.info(f"Instantiating loss balancer <{cfg.model.balancer._target_}>")
-    balancer = instantiate_balancer(cfg.model.balancer, module.loss_names)
-    log.info(f"Instantiating optimizer <{cfg.model.optimizer._target_}>")
-    optimizer = instantiate_optimizer(cfg.model.optimizer)
-    # Recreate the training-time model closure and state structure before loading checkpoint weights.
-    data_module.prepare_stage("fit")
-    try:
-        statistics = data_module.input_statistics()
-        input_mean, input_std = (None, None) if statistics is None else statistics
-        with jax.default_device(trainer.strategy.root_device):
-            bound_module, model_state = module.prepare_model(
-                key=model_key,
-                input_mean=input_mean,
-                input_std=input_std,
-                precision=trainer.precision,
-            )
-            state = trainer.initialize_state(
-                model_state,
-                optimizer,
-                balancer.initialize(),
-                runtime_key,
-                sampling_key=sampling_key,
-                balancer_key=balancer_key,
-            )
-    finally:
-        data_module.teardown_stage("fit")
-    trainer.predict_state(
-        bound_module,
-        state,
-        ckpt_path=cfg.ckpt_path,
-        ckpt_step=checkpoint_step,
-        datamodule=data_module,
-    )
+    trainer.predict(module, ckpt_path=ckpt_path, ckpt_step=checkpoint_step, datamodule=data_module)
     if writer.artifact_path is None:
         if trainer.strategy.is_global_zero or not writer.rank_zero_only:
             raise RuntimeError("PredictionWriter completed without producing an artifact.")
@@ -113,7 +80,7 @@ def hydra_main(cfg: DictConfig) -> None:
 
 def main() -> None:
     """Configure the repository environment and invoke the Hydra prediction entrypoint."""
-    pre_hydra_routine()
+    pre_hydra_routine(__file__)
     hydra_main()
 
 

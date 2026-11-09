@@ -7,11 +7,13 @@ model_checkpoint:
   save_last: true
   # Preserve the last valid state after exceptions, `Ctrl+C`, or `SIGTERM`.
   save_on_exception: true
+  # Keep the three most recent checkpoints; `save_top_k: -1` keeps every checkpoint.
+  monitor: step
+  mode: max
+  save_top_k: 3
   checkpoint_io:
     _target_: phijax.training.OrbaxCheckpointIO
     # Each child directory is keyed by the committed integer training step.
     directory: ${paths.output_dir}/checkpoints
-    # Retain the most recent checkpoints; `null` retains every committed step.
-    max_to_keep: 3
     # Submit saves in the background; trainer shutdown waits for pending writes.
     enable_async_checkpointing: true

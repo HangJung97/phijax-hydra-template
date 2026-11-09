@@ -52,10 +52,10 @@ class _PostTrainingPredictionTrainer:
         kwargs.pop("optimizer")
         kwargs.pop("seed")
         kwargs.pop("balancer")
-        datamodule.prepare_stage("fit")
+        datamodule.setup("fit")
         datamodule.train_batch_source(("initial",), object())
         kwargs.clear()
-        datamodule.teardown_stage("fit")
+        datamodule.teardown("fit")
         return FitResult(
             module=cast(Any, module),
             state=cast(Any, object()),
@@ -84,7 +84,7 @@ class _PostTrainingPredictionTrainer:
         """
         assert batches is None
         self.predicted_state = result.state
-        datamodule.prepare_stage("predict")
+        datamodule.setup("predict")
         try:
             if datamodule.predict_batch_source() is None:
                 return None
@@ -93,7 +93,7 @@ class _PostTrainingPredictionTrainer:
             self.prediction_writer.artifact_path = self.prediction_writer.output_path
             return np.zeros((1, 1), dtype=np.float32)
         finally:
-            datamodule.teardown_stage("predict")
+            datamodule.teardown("predict")
 
     def close(self) -> None:
         """Record checkpoint-manager closure before prediction assembly."""
@@ -203,7 +203,7 @@ def test_training_prediction_reuses_final_state_and_data_module(
             "data": {
                 "name": "burgers_1d",
                 "builder": {"_target_": "example.build_data"},
-                "batch_size": {"predict": 4},
+                "batch_sizes": {"predict": 4},
             },
             "model": {
                 "module": {"_target_": "example.Module"},
@@ -217,7 +217,6 @@ def test_training_prediction_reuses_final_state_and_data_module(
                 "model_checkpoint": {"_target_": "example.ModelCheckpoint"},
                 "rich_progress_bar": {
                     "_target_": "phijax.callbacks.RichProgressBar",
-                    "total": 10,
                     "predict_description": "Predicting",
                 },
                 "prediction_writer": {
@@ -243,8 +242,8 @@ def test_training_prediction_reuses_final_state_and_data_module(
     assert result.interrupted is interrupted
     assert trainer.closed is True
     assert trainer.predicted_state is result.state
-    assert data_module.prepare_stage.call_args_list == [call("fit"), call("predict")]
-    assert data_module.teardown_stage.call_args_list == [call("fit"), call("predict")]
+    assert data_module.setup.call_args_list == [call("fit"), call("predict")]
+    assert data_module.teardown.call_args_list == [call("fit"), call("predict")]
     data_module.train_batch_source.assert_called_once()
     assert expected_path.is_file()
 
@@ -281,8 +280,8 @@ def test_training_task_runs_a_small_composed_experiment(
                 "data.initial_size=4",
                 "data.pde_size=4",
                 "data.predict_shape=[2,2]",
-                "data.batch_size.initial=2",
-                "data.batch_size.pde=2",
+                "data.batch_sizes.initial=2",
+                "data.batch_sizes.pde=2",
                 "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
@@ -357,8 +356,8 @@ def test_training_task_runs_a_grad_norm_refresh(
                 "data.initial_size=2",
                 "data.pde_size=2",
                 "data.predict_shape=[2,2]",
-                "data.batch_size.initial=2",
-                "data.batch_size.pde=2",
+                "data.batch_sizes.initial=2",
+                "data.batch_sizes.pde=2",
                 "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],
@@ -406,8 +405,8 @@ def test_training_task_runs_a_chunked_ntk_refresh(
                 "data.initial_size=2",
                 "data.pde_size=2",
                 "data.predict_shape=[2,2]",
-                "data.batch_size.initial=2",
-                "data.batch_size.pde=2",
+                "data.batch_sizes.initial=2",
+                "data.batch_sizes.pde=2",
                 "~callbacks.model_checkpoint",
                 f"paths.output_dir={tmp_path}",
             ],

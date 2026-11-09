@@ -1,6 +1,6 @@
 # Native JAX trainer defaults. These values describe execution policy rather than model physics.
 _target_: phijax.Trainer
-# Maximum optimizer updates performed by one `fit` call.
+# Global optimizer step at which training stops. A fit resumed from step `N` runs `max_steps - N` more updates.
 max_steps: 10000
 # `auto` uses JAX's default backend; explicit choices are `cpu`, `gpu`, and `tpu`.
 accelerator: auto

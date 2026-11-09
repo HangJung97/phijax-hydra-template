@@ -31,7 +31,7 @@ The main data config is `configs/data/burgers_1d.yaml`.
 | `seed`         | Seed used to create fixed PDE points                |
 | `pde_sampling` | `fixed` reuses a pool; `uniform` creates new points |
 | `pde_size`     | Number of points in the fixed PDE pool              |
-| `batch_size`   | Rows used in one step or prediction chunk           |
+| `batch_sizes`  | Rows per device in one step or prediction chunk     |
 
 Use the small analytic config when you do not need reference targets:
 
@@ -59,6 +59,10 @@ PhiJAX stores each pool in a `HostPool`. A pool contains:
 - `metadata`: coordinate and output names; and
 - `reference_shape` and `flat_index`: values used to rebuild a prediction grid.
 
+The Burgers application builds its pools with NumPy. `HostPool.from_grid()` builds a pool from dense `[t, x, ...]`
+arrays and records `reference_shape` and `flat_index`; a Boolean `mask` selects part of the grid, such as the first
+time row for the `initial` pool.
+
 ## Fixed and uniform sampling
 
 Fixed sampling creates `pde_size` points once. Each step selects a batch from this pool:
@@ -66,7 +70,7 @@ Fixed sampling creates `pde_size` points once. Each step selects a batch from th
 ```yaml
 pde_sampling: fixed
 pde_size: 16384
-batch_size:
+batch_sizes:
   pde: 4096
 ```
 
@@ -80,24 +84,28 @@ Both modes use explicit JAX keys. The same seed and training step produce the sa
 
 ## Prediction chunks
 
-`predict_shape` sets the full prediction grid. `batch_size.predict` sets how many rows are evaluated at once.
+`predict_shape` sets the full prediction grid. `batch_sizes.predict` sets how many rows each device evaluates at once.
 
 ```yaml
 predict_shape: [100, 256]
-batch_size:
+batch_sizes:
   predict: 4096
 ```
 
-This grid has 25,600 points. PhiJAX evaluates it in chunks of at most 4,096 rows.
+This grid has 25,600 points. On one device, PhiJAX evaluates it in chunks of at most 4,096 rows. Use `predict: all`
+to evaluate the whole grid in one chunk.
 
 ## Add a new application
 
 1. Create `applications/<name>/data.py` for NumPy data loading and pool construction.
 2. Create `applications/<name>/datamodule.py` and subclass `phijax.DataModule`.
-3. Implement `prepare_data()`, `setup()`, and `train_batch_source()`.
-4. Add prediction hooks when the application supports prediction.
+3. Pass `batch_sizes` to `super().__init__()` and build the pools in `setup()`. Implement `prepare_data()` when the
+   application must create or download files first.
+4. Name the prediction pool `predict`. The PhiJAX defaults sample each pool named by an objective `batch_key` and chunk
+   the `predict` pool. Override `train_batch_source()` only for custom sampling, as Burgers does for
+   `pde_sampling: uniform`.
 5. Add a config under `configs/data/`.
-6. Match every objective `batch_key` with a sampler and batch size.
+6. Match every objective `batch_key` with a pool or sampler and a batch size.
 
 Keep file keys, coordinate order, output order, units, and transforms in the application package. The
 [PhiJAX data guide](https://hangjung97.github.io/PhiJAX/guides/datasets/) shows how to create data contracts and

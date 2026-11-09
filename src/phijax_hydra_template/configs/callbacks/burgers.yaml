@@ -10,9 +10,8 @@ defaults:
 model_checkpoint:
   # Persist ten evenly spaced periodic states during the reference run.
   every_n_steps: 1000
-  checkpoint_io:
-    # Retain only the two most recent committed checkpoints to bound disk usage.
-    max_to_keep: 2
+  # Keep only the two most recent checkpoints to bound disk usage.
+  save_top_k: 2
 
 prediction_writer:
   output_dir: ${paths.output_dir}/predictions

@@ -2,7 +2,7 @@ early_stopping:
   _target_: phijax.callbacks.EarlyStopping
   # Exact scalar metric name produced by the module/training step.
   monitor: train/loss
-  # Number of non-improving observations tolerated before requesting a clean stop.
+  # Stop after this many consecutive checks without improvement. A NaN or infinite metric stops immediately.
   patience: 1000
   # `min` treats lower values as improvements; use `max` for increasing metrics.
   mode: min

@@ -8,25 +8,28 @@ from numpy.typing import NDArray
 from phijax import DataModule
 from phijax.data import (
     BatchSize,
-    ChunkedPredictionSource,
     DataStage,
     HostPool,
     NamedBatchSource,
     RandomRowSampler,
+    TrainingBatchSource,
     UniformDomainSampler,
-    build_array_pools,
     input_statistics,
+    load_arrays,
 )
 
-from phijax_hydra_template.applications.burgers.data import build_burgers_pools
+from phijax_hydra_template.applications.burgers.data import build_burgers_file_pools, build_burgers_pools
 from phijax_hydra_template.applications.burgers.generation import ensure_burgers_dataset
 
 
 class BurgersDataModule(DataModule):
-    """Own Burgers dataset preparation, host pools, batching, and prediction policy.
+    """Own Burgers dataset preparation, host pools, and PDE sampling policy.
+
+    The PhiJAX base class chunks the `predict` pool by `batch_sizes["predict"]` and samples finite pools by name.
 
     Args:
-        batch_size: Per-pool positive integer or `all` batch policies.
+        batch_sizes: Per-device positive integer or `all` batch policies keyed by pool name. The `predict` entry sets
+            the prediction chunk size.
         seed: NumPy seed controlling the finite PDE candidate pool.
         data_path: Optional reference artifact. When absent, analytic initial, PDE, and prediction pools are generated
             directly without reference prediction targets.
@@ -45,7 +48,7 @@ class BurgersDataModule(DataModule):
 
     def __init__(
         self,
-        batch_size: Mapping[str, BatchSize],
+        batch_sizes: Mapping[str, BatchSize],
         *,
         seed: int = 42,
         data_path: str | Path | None = None,
@@ -60,7 +63,7 @@ class BurgersDataModule(DataModule):
         """Store application data policy without constructing arrays or initializing JAX.
 
         Args:
-            batch_size: Per-pool training and prediction batch policies.
+            batch_sizes: Per-device training batch and prediction chunk sizes keyed by pool name.
             seed: Finite PDE candidate-pool seed.
             data_path: Optional reference artifact path.
             initial_size: Analytic initial-condition pool size.
@@ -74,12 +77,11 @@ class BurgersDataModule(DataModule):
         Raises:
             ValueError: If `name` is empty or `pde_sampling` is unsupported.
         """
-        super().__init__()
+        super().__init__(batch_sizes=batch_sizes)
         if not isinstance(name, str) or not name.strip():
             raise ValueError("Burgers dataset `name` must be a non-empty string.")
         if pde_sampling not in ("fixed", "uniform"):
             raise ValueError("Burgers `pde_sampling` must be `fixed` or `uniform`.")
-        self.batch_size = dict(batch_size)
         self.seed = seed
         self.data_path = None if data_path is None else Path(data_path).expanduser().resolve()
         self.initial_size = initial_size
@@ -106,42 +108,26 @@ class BurgersDataModule(DataModule):
         """
         if stage not in ("fit", "predict"):
             raise ValueError("Burgers data stage must be `fit` or `predict`.")
+        # `uniform` mode draws fresh PDE coordinates per step, so it builds no finite PDE pool.
+        pde_size = self.pde_size if self.pde_sampling == "fixed" else None
         if self.data_path is None:
             self.pools = build_burgers_pools(
                 seed=self.seed,
                 initial_size=self.initial_size,
-                pde_size=self.pde_size if self.pde_sampling == "fixed" else None,
+                pde_size=pde_size,
                 predict_shape=self.predict_shape,
                 time_bounds=self.time_bounds,
                 space_bounds=self.space_bounds,
             )
         else:
-            pool_specs: dict[str, object] = {
-                "initial": {
-                    "inputs": ("t", "x"),
-                    "targets": ("u",),
-                    "slice": {"t": {"index": 0}},
-                },
-                "predict": {"inputs": ("t", "x"), "targets": ("u",), "grid": "full"},
-            }
-            if self.pde_sampling == "fixed":
-                pool_specs["pde"] = {
-                    "inputs": ("t", "x"),
-                    "sampling": {"method": "uniform", "size": self.pde_size, "seed": self.seed},
-                }
-            self.pools = build_array_pools(
-                source={"path": self.data_path, "file_format": "auto"},
-                coordinates={"t": {"key": "t"}, "x": {"key": "x"}},
-                fields={"u": {"key": "usol", "axes": ("t", "x")}},
-                pools=pool_specs,
-            )
+            self.pools = build_burgers_file_pools(load_arrays(self.data_path), seed=self.seed, pde_size=pde_size)
 
     def train_batch_source(
         self,
         batch_keys: tuple[str, ...],
         key: jax.Array,
-    ) -> NamedBatchSource:
-        """Build finite-data and configured interior-coordinate samplers.
+    ) -> TrainingBatchSource:
+        """Sample finite pools by name, and draw fresh PDE coordinates in `uniform` mode.
 
         Args:
             batch_keys: Objective batch keys in stable declaration order.
@@ -150,10 +136,12 @@ class BurgersDataModule(DataModule):
         Returns:
             Unprepared deterministic source that the Trainer places before sampling.
         """
+        if self.pde_sampling == "fixed":
+            return super().train_batch_source(batch_keys, key)
         pools = self._require_setup("fit")
         samplers = {}
         for batch_key in batch_keys:
-            if batch_key == "pde" and self.pde_sampling == "uniform":
+            if batch_key == "pde":
                 # Preserve the zero-width target field so both PDE policies expose the same batch structure.
                 templates = {"targets": np.empty((0,), dtype=np.float32)}
                 samplers[batch_key] = UniformDomainSampler(
@@ -162,24 +150,8 @@ class BurgersDataModule(DataModule):
                 )
             else:
                 samplers[batch_key] = RandomRowSampler(pools[batch_key].fields())
-        sizes = {batch_key: self.batch_size[batch_key] for batch_key in batch_keys}
-        return NamedBatchSource(samplers, sizes, key)
-
-    def predict_batch_source(self) -> ChunkedPredictionSource:
-        """Build a lazy host-backed source for the dense Burgers prediction grid.
-
-        Returns:
-            Re-iterable padded prediction source with reconstruction metadata.
-        """
-        return ChunkedPredictionSource(self.prediction_pool(), self._prediction_batch_size())
-
-    def prediction_pool(self) -> HostPool:
-        """Return the dense ordered Burgers prediction pool.
-
-        Returns:
-            Host pool carrying prediction coordinates, targets, and reconstruction metadata.
-        """
-        return self._require_setup("predict")["predict"]
+        batch_sizes = cast(Mapping[str, BatchSize], self.batch_sizes)
+        return NamedBatchSource(samplers, {batch_key: batch_sizes[batch_key] for batch_key in batch_keys}, key)
 
     def normalization_pools(self) -> Mapping[str, HostPool]:
         """Select a finite domain-representative pool when one is requested directly.
@@ -226,20 +198,6 @@ class BurgersDataModule(DataModule):
             raise ValueError("Burgers uniform PDE sampling requires prediction bounds ordered as `t` and `x`.")
         named_bounds = {str(name): (float(lower), float(upper)) for name, lower, upper in raw_bounds}
         return np.asarray([named_bounds[name] for name in coordinate_names], dtype=np.float32)
-
-    def _prediction_batch_size(self) -> int:
-        """Resolve and validate the fixed prediction chunk size.
-
-        Returns:
-            Positive integer prediction chunk size.
-
-        Raises:
-            ValueError: If `batch_size.predict` is not a positive integer.
-        """
-        value = self.batch_size["predict"]
-        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-            raise ValueError("Burgers prediction batch size must be a positive integer.")
-        return value
 
 
 __all__ = ["BurgersDataModule"]

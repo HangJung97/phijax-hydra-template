@@ -29,9 +29,10 @@ weight_factorization_kwargs:
   std: 0.1
   # Learn an additive bias in every factorized dense layer.
   use_bias: true
-# Replace configured coordinate axes by fixed cosine/sine pairs before learned embeddings.
+# Replace periodic coordinate axes by fixed cosine/sine pairs of the physical coordinate before learned embeddings.
 periodic_features: false
-# Expected keys are `axes` and matching nonzero angular `frequencies`.
+# Expected key is `periods`, mapping each periodic input axis index to its physical period. It overrides or adds to
+# the periods returned by the DataModule's `input_periods()`.
 periodic_features_kwargs: null
 # Project embedded coordinates through trainable Gaussian Fourier frequencies.
 fourier_features: false

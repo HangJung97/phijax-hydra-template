@@ -11,7 +11,7 @@ uv sync --locked
 source .venv/bin/activate
 ```
 
-The project requires Python 3.12 or newer and uses `phijax==0.2.0b5`.
+The project requires Python 3.12 or newer and uses `phijax[hydra,io]==0.2.0b6`.
 
 For an NVIDIA GPU, install exactly one JAX CUDA runtime before activating the environment:
 
@@ -30,7 +30,9 @@ uv sync --locked --extra tpu
 source .venv/bin/activate
 ```
 
-Install at most one of `cuda12`, `cuda13`, and `tpu` in an environment.
+Install at most one of `cuda12`, `cuda13`, and `tpu` in an environment. The `all` extra installs every optional
+integration (TensorBoard, W&B, and Jupyter) without an accelerator runtime, so it combines with one of them, for
+example `uv sync --locked --extra all --extra cuda13`.
 
 ## Run the notebook
 

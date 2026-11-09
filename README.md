@@ -54,7 +54,7 @@ The project layout and experiment-config workflow are inspired by the
 
 ## Limitations
 
-- PhiJAX `0.2.0b5` is a beta release. Review the [PhiJAX changelog](https://hangjung97.github.io/PhiJAX/changelog/)
+- PhiJAX `0.2.0b6` is a beta release. Review the [PhiJAX changelog](https://hangjung97.github.io/PhiJAX/changelog/)
   before upgrading.
 - PhiJAX may not yet provide every framework component required by your use case.
 - Burgers is the only ready-to-run application. New physics and data formats still need application code and tests.
@@ -69,7 +69,7 @@ git clone https://github.com/HangJung97/phijax-hydra-template.git
 cd phijax-hydra-template
 
 # create `.venv` and install the project with TensorBoard support
-# [OPTIONAL] add `--extra wandb` for W&B support
+# [OPTIONAL] add `--extra wandb` for W&B support, or use `--extra all` for TensorBoard, W&B, and Jupyter
 uv sync --extra tensorboard
 
 # for machines with NVIDIA GPUs, add exactly one JAX CUDA extra
@@ -369,11 +369,15 @@ phijax-train experiment=burgers_grad_norm_1d \
   trainer.max_steps=10
 ```
 
-Resume the full training state from the latest checkpoint:
+Resume the full training state from the latest checkpoint. `trainer.max_steps` is the global step at which training
+stops, so set it above the checkpoint's step to train further:
 
 ```bash
-phijax-train experiment=burgers_grad_norm_1d ckpt_path=/path/to/checkpoints
+phijax-train experiment=burgers_grad_norm_1d ckpt_path=/path/to/checkpoints trainer.max_steps=10000
 ```
+
+The Burgers learning-rate schedule scales its warmup and decay with `trainer.max_steps`. A larger value therefore
+resumes at the learning rate of the stretched schedule, which is higher than the rate the checkpoint ended with.
 
 Run the same experiment with several random seeds:
 
@@ -494,6 +498,13 @@ Install the optional notebook environment with:
 uv sync --extra jupyter
 ```
 
+Install every optional integration (TensorBoard, W&B, and Jupyter) with `all`. It has no accelerator runtime, so
+combine it with at most one accelerator extra:
+
+```bash
+uv sync --extra all --extra cuda13
+```
+
 Run a command without activating the environment:
 
 ```bash
@@ -592,6 +603,9 @@ This project uses [PhiJAX](https://github.com/HangJung97/PhiJAX) with Hydra and 
    ```bash
    # add W&B to the CPU and TensorBoard environment
    uv sync --extra tensorboard --extra wandb
+
+   # install TensorBoard, W&B, and Jupyter together
+   uv sync --extra all
    ```
 
 3. Activate the virtual environment:
@@ -631,7 +645,7 @@ You can inspect the final config or override any setting from the command line:
 
 ```bash
 phijax-train experiment=your_experiment --cfg job --resolve
-phijax-train experiment=your_experiment trainer.max_steps=1000 data.batch_size.pde=256
+phijax-train experiment=your_experiment trainer.max_steps=1000 data.batch_sizes.pde=256
 ```
 
 ### Hyperparameter search
