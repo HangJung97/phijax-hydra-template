@@ -14,7 +14,8 @@ pde_size: 16384
 predict_shape: [100, 256]
 time_bounds: [0.0, 1.0]
 space_bounds: [-1.0, 1.0]
-batch_size:
+# Batch sizes count rows per device.
+batch_sizes:
   initial: all
   pde: 4096
   predict: 4096

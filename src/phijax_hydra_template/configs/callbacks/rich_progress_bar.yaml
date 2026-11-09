@@ -1,8 +1,7 @@
 rich_progress_bar:
   # Display training progress and automatically discovered loss/weight metrics.
   _target_: phijax.callbacks.RichProgressBar
-  # Interpolations keep the bar length and refresh interval aligned with the trainer.
-  total: ${trainer.max_steps}
+  # The bar counts to `trainer.max_steps`; this interpolation keeps its refresh interval aligned with logging.
   refresh_rate: ${trainer.log_every_n_steps}
   description: Step
   predict_description: Predicting

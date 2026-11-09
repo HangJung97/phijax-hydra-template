@@ -38,7 +38,7 @@ def test_burgers_experiment_runs_a_compiled_training_update(
                 "data.initial_size=4",
                 "data.pde_sampling=uniform",
                 "data.predict_shape=[2,2]",
-                "data.batch_size.pde=2",
+                "data.batch_sizes.pde=2",
                 "~callbacks.rich_model_summary",
                 "~callbacks.rich_progress_bar",
                 "~callbacks.model_checkpoint",

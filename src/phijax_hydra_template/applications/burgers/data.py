@@ -1,7 +1,13 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 import numpy as np
-from phijax.data import HostPool
+from numpy.typing import NDArray
+from phijax.data import HostPool, get_array
+
+# Burgers model inputs are ordered `[t, x]` and the single model output is `u`.
+_COORDINATE_NAMES = ("t", "x")
+_OUTPUT_NAMES = ("u",)
 
 
 def _validate_interval(bounds: Sequence[float], *, name: str) -> tuple[float, float]:
@@ -23,31 +29,28 @@ def _validate_interval(bounds: Sequence[float], *, name: str) -> tuple[float, fl
     return values
 
 
-def _pool(
-    inputs: np.ndarray,
-    targets: np.ndarray,
-    *,
-    reference_shape: tuple[int, ...] | None = None,
-) -> HostPool:
-    """Construct one immutable Burgers host pool.
+def _sample_domain(
+    seed: int,
+    size: int,
+    time_bounds: tuple[float, float],
+    space_bounds: tuple[float, float],
+) -> NDArray[np.float32]:
+    """Draw uniformly distributed interior coordinates from an explicitly seeded NumPy generator.
 
     Args:
-        inputs: Rank-two coordinate rows ordered as `[t, x]`.
-        targets: Rank-two target rows.
-        reference_shape: Optional dense grid shape for prediction reconstruction.
+        seed: NumPy generator seed.
+        size: Number of coordinate rows.
+        time_bounds: Lower and upper temporal bounds.
+        space_bounds: Lower and upper spatial bounds.
 
     Returns:
-        Indexed immutable host pool.
+        Coordinates with shape `[size, 2]` ordered as `[t, x]`.
     """
-    row_count = inputs.shape[0]
-    return HostPool(
-        inputs=inputs,
-        targets=targets,
-        aux={},
-        metadata={"coordinate_names": ("t", "x"), "output_names": ("u",)},
-        reference_shape=reference_shape or (row_count,),
-        flat_index=np.arange(row_count, dtype=np.int64),
-    )
+    # Draw every `t` before every `x` so a given seed always yields the same pool.
+    generator = np.random.default_rng(seed)
+    return np.column_stack(
+        (generator.uniform(*time_bounds, size), generator.uniform(*space_bounds, size)),
+    ).astype(np.float32)
 
 
 def build_burgers_pools(
@@ -95,23 +98,77 @@ def build_burgers_pools(
 
     times = np.linspace(time_min, time_max, resolved_shape[0], dtype=np.float32)
     positions = np.linspace(space_min, space_max, resolved_shape[1], dtype=np.float32)
-    prediction_inputs = np.stack(np.meshgrid(times, positions, indexing="ij"), axis=-1).reshape(-1, 2)
+    grid_inputs = np.stack(np.meshgrid(times, positions, indexing="ij"), axis=-1)
+    metadata = {"coordinate_names": _COORDINATE_NAMES, "output_names": _OUTPUT_NAMES}
 
     pools = {
-        "initial": _pool(initial_inputs, initial_targets),
-        "predict": _pool(
-            prediction_inputs,
-            np.zeros((prediction_inputs.shape[0], 0), dtype=np.float32),
-            reference_shape=resolved_shape,
-        ),
+        "initial": HostPool(initial_inputs, initial_targets, metadata=metadata),
+        # The analytic grid has no reference solution, so its targets are zero-width.
+        "predict": HostPool.from_grid(grid_inputs, metadata=metadata),
     }
     if pde_size is not None:
-        generator = np.random.default_rng(seed)
-        pde_inputs = np.column_stack(
-            (
-                generator.uniform(time_min, time_max, pde_size),
-                generator.uniform(space_min, space_max, pde_size),
-            )
-        ).astype(np.float32)
-        pools["pde"] = _pool(pde_inputs, np.zeros((pde_size, 0), dtype=np.float32))
+        pde_inputs = _sample_domain(seed, pde_size, (time_min, time_max), (space_min, space_max))
+        pools["pde"] = HostPool(pde_inputs, metadata=metadata)
+    return pools
+
+
+def build_burgers_file_pools(
+    arrays: Mapping[str, Any],
+    *,
+    seed: int = 42,
+    pde_size: int | None = 16384,
+) -> dict[str, HostPool]:
+    """Build Burgers pools from a loaded reference solution on a `[t, x]` grid.
+
+    The `initial` pool holds the first time row of the grid and keeps the full grid as its reconstruction shape. The
+    `predict` pool holds the whole grid with the reference solution as targets. Interior residual points are sampled
+    uniformly between the first and last grid coordinates.
+
+    Args:
+        arrays: Loaded arrays with one-dimensional `t` and `x` coordinates and `usol` with shape `[t, x]`.
+        seed: NumPy generator seed used for interior collocation points.
+        pde_size: Number of uniformly sampled interior residual points, or `None` to omit the finite PDE pool when
+            batches are generated continuously by the data module.
+
+    Returns:
+        Named `initial` and `predict` host pools, plus `pde` when `pde_size` is defined.
+
+    Raises:
+        ValueError: If a coordinate is not strictly increasing with at least two values, `usol` does not have shape
+            `[t, x]`, or `pde_size` is not positive.
+    """
+    if pde_size is not None and pde_size < 1:
+        raise ValueError("Burgers `pde_size` must be positive when defined.")
+    # Cast before taking bounds so the sampled domain matches the float32 coordinates the model sees.
+    times = np.asarray(get_array(arrays, "t"), dtype=np.float32).squeeze()
+    positions = np.asarray(get_array(arrays, "x"), dtype=np.float32).squeeze()
+    for name, values in (("t", times), ("x", positions)):
+        if values.ndim != 1 or values.size < 2 or np.any(np.diff(values) <= 0.0):
+            raise ValueError(f"Burgers coordinate `{name}` must be strictly increasing with at least two values.")
+    solution = np.asarray(get_array(arrays, "usol"), dtype=np.float32)
+    grid_shape = (times.size, positions.size)
+    if solution.shape != grid_shape:
+        raise ValueError(f"Burgers `usol` must have shape `[t, x]` = {grid_shape}; received {solution.shape}.")
+
+    time_bounds = (float(times[0]), float(times[-1]))
+    space_bounds = (float(positions[0]), float(positions[-1]))
+    sampling_bounds = (("t", *time_bounds), ("x", *space_bounds))
+    grid_metadata = {
+        "coordinate_names": _COORDINATE_NAMES,
+        "output_names": _OUTPUT_NAMES,
+        "sampling_bounds": sampling_bounds,
+    }
+    grid_inputs = np.stack(np.meshgrid(times, positions, indexing="ij"), axis=-1)
+    initial_mask = np.zeros(solution.shape, dtype=bool)
+    initial_mask[0] = True
+
+    pools = {
+        "initial": HostPool.from_grid(grid_inputs, solution[..., None], mask=initial_mask, metadata=grid_metadata),
+        "predict": HostPool.from_grid(grid_inputs, solution[..., None], metadata=grid_metadata),
+    }
+    if pde_size is not None:
+        pools["pde"] = HostPool(
+            _sample_domain(seed, pde_size, time_bounds, space_bounds),
+            metadata={"coordinate_names": _COORDINATE_NAMES, "sampling_bounds": sampling_bounds},
+        )
     return pools

@@ -3,8 +3,6 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, call
 
-import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
 from omegaconf import OmegaConf
@@ -18,7 +16,7 @@ from phijax_hydra_template.applications.burgers import build_burgers_pools
 
 
 class _PredictionTrainer:
-    """Provide a deterministic prediction runner for entrypoint artifact tests."""
+    """Provide a deterministic checkpoint-prediction runner for entrypoint artifact tests."""
 
     def __init__(self, callbacks: tuple[PredictionWriter, ...] = (), pool: HostPool | None = None) -> None:
         """Initialize callbacks, reconstruction data, and an open trainer marker.
@@ -31,92 +29,77 @@ class _PredictionTrainer:
         self.callbacks = callbacks
         self.prediction_writer = callbacks[0] if callbacks else None
         self.pool = pool
-        self.strategy = SimpleNamespace(is_global_zero=True, root_device=jax.devices()[0])
-        self.precision = object()
+        self.strategy = SimpleNamespace(is_global_zero=True)
+        self.predicted_model: object | None = None
         self.ckpt_path: str | None = None
         self.ckpt_step: int | None = None
 
-    def predict_state(
+    def predict(
         self,
-        module: object,
-        state: object,
+        model: object,
         batches: object = None,
         *,
+        datamodule: Any,
         ckpt_path: str,
         ckpt_step: int | None,
-        datamodule: Any,
-    ) -> jax.Array:
-        """Return one flat synthetic prediction array.
+        metadata: object = None,
+        return_predictions: bool = True,
+    ) -> np.ndarray | None:
+        """Record the checkpoint request and return one flat synthetic prediction array.
 
         Args:
-            module: Ignored module placeholder.
-            state: Ignored state placeholder.
+            model: Module blueprint recorded for assertions.
             batches: Optional explicit batch source, expected to be omitted.
+            datamodule: Prediction DataModule set up and torn down by the fixture, as the Trainer does.
             ckpt_path: Checkpoint root forwarded by the entrypoint.
             ckpt_step: Optional exact checkpoint step.
-            datamodule: Prediction DataModule torn down by the fixture.
+            metadata: Optional callback metadata, expected to be omitted.
+            return_predictions: Whether to return the synthetic predictions.
 
         Returns:
-            Six scalar prediction rows.
+            Six scalar prediction rows, or `None` when collection is disabled.
         """
-        del module, state
         assert batches is None
+        assert metadata is None
+        self.predicted_model = model
         self.ckpt_path = ckpt_path
         self.ckpt_step = ckpt_step
-        datamodule.prepare_stage("predict")
-        datamodule.predict_batch_source()
-        datamodule.teardown_stage("predict")
-        predictions = jnp.arange(6, dtype=jnp.float32).reshape(6, 1)
-        for callback in self.callbacks:
-            callback.setup()
-            callback.on_predict_end(
-                PredictionContext(
-                    outputs=np.asarray(predictions),
-                    batch_index=None,
-                    metadata={},
-                    pool=self.pool,
+        predictions = np.arange(6, dtype=np.float32).reshape(6, 1)
+        datamodule.setup("predict")
+        try:
+            datamodule.predict_batch_source()
+            for callback in self.callbacks:
+                callback.setup()
+                callback.on_predict_end(
+                    PredictionContext(outputs=predictions, batch_index=None, metadata={}, pool=self.pool)
                 )
-            )
-            callback.teardown()
-        return predictions
+                callback.teardown()
+        finally:
+            datamodule.teardown("predict")
+        return predictions if return_predictions else None
 
     def close(self) -> None:
         """Record trainer closure."""
         self.closed = True
-
-    def initialize_state(self, *args: object, **kwargs: object) -> object:
-        """Return a synthetic checkpoint-compatible state.
-
-        Args:
-            *args: Model, optimizer, balancer, and key values ignored by the fixture.
-            **kwargs: Sampling and balancing keys ignored by the fixture.
-
-        Returns:
-            Synthetic state placeholder.
-        """
-        del args, kwargs
-        return object()
 
 
 def test_prediction_task_saves_flat_and_dense_outputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Verify the prediction entrypoint reconstructs and saves callback-produced model outputs.
+    """Verify the prediction entrypoint predicts from the checkpoint and saves reconstructed outputs.
 
     Args:
         monkeypatch: Pytest attribute patch helper.
         tmp_path: Temporary artifact directory.
     """
     data_module = MagicMock()
-    data_module.input_statistics.return_value = None
     pool = build_burgers_pools(predict_shape=(2, 3))["predict"]
     output_path = tmp_path / "prediction.npz"
     writer = PredictionWriter(
         tmp_path, save_file_name="prediction", save_mat=True, mat_field_names={"prediction": "pred"}
     )
     trainer = _PredictionTrainer((writer,), pool)
-    state = object()
 
     def build_trainer(config: object) -> _PredictionTrainer:
         """Register and return the prediction trainer fixture.
@@ -140,25 +123,18 @@ def test_prediction_task_saves_flat_and_dense_outputs(
         MagicMock(return_value=SimpleNamespace(loss_names=("loss",))),
     )
     configured_module = MagicMock(spec=PhiModule)
-    configured_module.loss_names = ("loss",)
-    configured_module.prepare_model.return_value = (configured_module, state)
     monkeypatch.setattr(predict_module, "instantiate_module", MagicMock(return_value=configured_module))
-    balancer = SimpleNamespace(initialize=lambda: object())
-    monkeypatch.setattr(predict_module, "instantiate_balancer", MagicMock(return_value=balancer))
-    monkeypatch.setattr(predict_module, "instantiate_optimizer", MagicMock(return_value=object()))
+    # Prediction needs no seed, balancer, or optimizer: the model state comes from the checkpoint.
     config = OmegaConf.create(
         {
-            "seed": 4,
             "ckpt_path": str(tmp_path / "checkpoints"),
-            "ckpt_step": None,
+            "ckpt_step": 3,
             "application": {"name": "test"},
             "data": {"_target_": "example.DataModule"},
             "model": {
                 "module": {"_target_": "example.Module"},
                 "net": {"_target_": "example.Model"},
                 "objective": {"_target_": "example.Objective"},
-                "balancer": {"_target_": "example.Balancer"},
-                "optimizer": {"_target_": "example.Optimizer"},
             },
             "trainer": {"_target_": "example.Trainer"},
             "output_dir": str(tmp_path),
@@ -171,11 +147,12 @@ def test_prediction_task_saves_flat_and_dense_outputs(
 
     assert result == output_path
     assert trainer.closed is True
+    assert trainer.predicted_model is configured_module
     assert trainer.ckpt_path == str(tmp_path / "checkpoints")
-    assert trainer.ckpt_step is None
-    assert data_module.prepare_stage.call_args_list == [call("fit"), call("predict")]
+    assert trainer.ckpt_step == 3
+    assert data_module.setup.call_args_list == [call("predict")]
     data_module.predict_batch_source.assert_called_once_with()
-    assert data_module.teardown_stage.call_args_list == [call("fit"), call("predict")]
+    assert data_module.teardown.call_args_list == [call("predict")]
     with np.load(output_path) as artifact:
         assert artifact["flat_prediction"].shape == (6, 1)
         assert artifact["prediction"].shape == (2, 3, 1)

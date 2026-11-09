@@ -14,7 +14,7 @@ defaults:
   - optional experiment: null
   - optional local: default
 
-# Rebuilds the full-state Orbax restore template deterministically; prediction does not build training sources or steps.
+# Seeds DataModule pool construction through `data.seed`. The model state comes from the checkpoint.
 seed: 12345
 # Required Orbax checkpoint-root directory. Hydra reports a missing mandatory value when omitted.
 ckpt_path: ???

@@ -10,7 +10,8 @@ seed: ${seed}
 pde_sampling: fixed
 # Finite candidate count used only by `fixed` PDE sampling.
 pde_size: 16384
-batch_size:
+# Batch sizes count rows per device.
+batch_sizes:
   # Use every initial-condition observation in each optimizer update.
   initial: all
   # Fixed rows or newly generated domain coordinates evaluated per update, according to `pde_sampling`.

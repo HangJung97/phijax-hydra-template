@@ -22,9 +22,8 @@ net:
   # Replace spatial coordinate index 1 with `(cos(pi*x), sin(pi*x))` for period 2.
   periodic_features: true
   periodic_features_kwargs:
-    axes: [1]
-    frequencies:
-      - ${math:pi}
+    periods:
+      1: 2.0
   # Apply a trainable random Fourier mapping after the fixed periodic embedding.
   fourier_features: true
   fourier_features_kwargs:

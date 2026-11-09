@@ -3,7 +3,7 @@ _target_: phijax.balancers.ExactNTKBalancer
 update_every_n_steps: 1000
 # `null` performs the first update after one complete interval; use `0` to update before the first optimizer step.
 update_start_step: null
-# Independently sampled rows per named objective batch used for each NTK refresh.
+# Independently sampled rows per device and named objective batch used for each NTK refresh.
 kernel_size: 300
 # `null` uses a full-sample `vmap`; use a positive integer for memory-bounded chunking.
 kernel_chunk_size: null

@@ -142,7 +142,7 @@ def hydra_main(cfg: DictConfig) -> float | None:
 
 def main() -> None:
     """Configure the repository environment and invoke the Hydra training entrypoint."""
-    pre_hydra_routine()
+    pre_hydra_routine(__file__)
     hydra_main()
 
 
