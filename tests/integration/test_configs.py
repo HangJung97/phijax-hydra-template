@@ -80,6 +80,34 @@ def test_burgers_experiment_composes_complete_runtime_policy(config_dir: Path) -
     assert objective.loss_names == ("initial/data", "pde/burgers")
 
 
+@pytest.mark.parametrize(("max_steps", "warmup_steps"), [(1, 0), (10, 1), (5000, 500)])
+def test_burgers_schedule_warms_up_then_decays_to_the_final_rate(
+    config_dir: Path,
+    max_steps: int,
+    warmup_steps: int,
+) -> None:
+    """Verify the Burgers learning rate warms up over 10% of training and reaches its final value at `max_steps`.
+
+    Args:
+        config_dir: Project Hydra config directory.
+        max_steps: Configured global step at which training stops.
+        warmup_steps: Expected warmup length.
+    """
+    with initialize_config_dir(config_dir=str(config_dir.resolve()), version_base=None):
+        config = compose(
+            config_name="train",
+            overrides=["experiment=burgers_grad_norm_1d", f"trainer.max_steps={max_steps}"],
+        )
+
+    scheduler = config.model.scheduler
+    assert scheduler._target_ == "optax.warmup_exponential_decay_schedule"
+    assert scheduler.warmup_steps == warmup_steps
+    assert scheduler.transition_steps == max_steps - warmup_steps
+    schedule = instantiate(scheduler)
+    assert float(schedule(warmup_steps)) == pytest.approx(scheduler.peak_value)
+    assert float(schedule(max_steps)) == pytest.approx(scheduler.peak_value * scheduler.decay_rate)
+
+
 @pytest.mark.parametrize(
     ("optimizer_name", "target", "momentum", "weight_decay"),
     [

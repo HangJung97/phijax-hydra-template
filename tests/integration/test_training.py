@@ -295,7 +295,8 @@ def test_training_task_runs_a_small_composed_experiment(
     assert result.iterations == 1
     assert set(config.model.objective.equations) == {"initial", "pde"}
     assert "train/loss" in result.metrics
-    assert result.metrics["optimizer/lr-adamw"] == pytest.approx(0.0)
+    # A one-step run has no warmup steps, so the first update uses the peak learning rate.
+    assert result.metrics["optimizer/lr-adamw"] == pytest.approx(config.model.scheduler.peak_value)
     log_dir = tmp_path / "phijax_logs" / "version_0"
     assert (log_dir / "hparams.yaml").is_file()
     assert (log_dir / "metrics.csv").is_file()
@@ -310,7 +311,7 @@ def test_training_task_runs_a_small_composed_experiment(
     }
     messages = [record.message for record in caplog.records if record.name in lifecycle_loggers]
     assert messages == [
-        "Trainer seed set to 42.",
+        "Trainer seed set to 12345.",
         "Instantiating trainer <phijax.Trainer>",
         "Using freshly initialized training state.",
         "Logging hyperparameters!",
