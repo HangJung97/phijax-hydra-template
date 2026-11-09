@@ -81,22 +81,18 @@ uv sync --extra tensorboard
 
 # activate the virtual environment
 source .venv/bin/activate
-
-# make the GPU examples repeatable under the same hardware and software environment
-export XLA_FLAGS="--xla_gpu_exclude_nondeterministic_ops --xla_gpu_autotune_level=0"
 ```
 
 ### Command-line example
 
 Run the Burgers example. The default `accelerator=auto` uses JAX's default backend. JAX selects an available GPU or TPU
-when its runtime is installed and the device is visible. Otherwise, it uses the CPU. PhiJAX does not configure
-process-wide GPU determinism through the Trainer. The exported XLA options above select deterministic GPU kernels and
-disable timing-based autotuning. See [Randomness and reproducibility](https://hangjung97.github.io/PhiJAX/guides/reproducibility/#deterministic-gpu-execution)
-in the PhiJAX documentation for the limits and performance trade-offs.
+when its runtime is installed and the device is visible. Otherwise, it uses the CPU.
 
 ```bash
 phijax-train experiment=burgers_grad_norm_1d logger=tensorboard
 ```
+
+To make GPU runs repeatable, see [Training](#training).
 
 Try a shorter run while developing:
 
@@ -132,8 +128,8 @@ uv sync --extra jupyter
 uv run --no-sync jupyter lab notebooks/burgers_example.ipynb
 ```
 
-The notebook runs the complete Burgers experiment with deterministic GPU settings, then evaluates and plots its
-predictions.
+The notebook runs the complete Burgers experiment, then evaluates and plots its predictions. Set
+`DETERMINISTIC_GPU = True` in its setup cell to repeat a GPU run exactly.
 
 [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HangJung97/phijax-hydra-template/blob/main/notebooks/burgers_example.ipynb)
 
@@ -306,7 +302,7 @@ task_name: burgers_grad_norm_1d
 # Searchable labels forwarded to experiment loggers such as W&B.
 tags: [burgers, grad_norm]
 # Root seed shared by data construction and all explicit JAX key splits.
-seed: 42
+seed: 12345
 predict: true
 
 trainer:
@@ -602,9 +598,6 @@ This project uses [PhiJAX](https://github.com/HangJung97/PhiJAX) with Hydra and 
 
    ```bash
    source .venv/bin/activate
-
-   # make GPU runs repeatable under the same hardware and software environment
-   export XLA_FLAGS="--xla_gpu_exclude_nondeterministic_ops --xla_gpu_autotune_level=0"
    ```
 
 ## How to run
@@ -620,10 +613,19 @@ phijax-train experiment=your_experiment
 ```
 
 By default, `accelerator=auto` uses JAX's default backend. JAX selects an available GPU or TPU when its runtime is
-installed and the device is visible, and otherwise uses the CPU. PhiJAX does not configure process-wide GPU
-determinism through the Trainer. See
-[Randomness and reproducibility](https://hangjung97.github.io/PhiJAX/guides/reproducibility/#deterministic-gpu-execution)
-for the XLA options used above and their trade-offs.
+installed and the device is visible, and otherwise uses the CPU.
+
+> [!TIP]
+> GPU runs with the same seed are not bit-for-bit repeatable by default: XLA picks GPU kernels by timing them, and some
+> GPU operations add numbers in a varying order. To compare two settings without that noise, select deterministic
+> kernels and disable timing-based autotuning before starting PhiJAX:
+>
+> ```bash
+> export XLA_FLAGS="--xla_gpu_exclude_nondeterministic_ops --xla_gpu_autotune_level=0"
+> ```
+>
+> See [Randomness and reproducibility](https://hangjung97.github.io/PhiJAX/guides/reproducibility/#deterministic-gpu-execution)
+> for the limits and performance trade-offs.
 
 You can inspect the final config or override any setting from the command line:
 

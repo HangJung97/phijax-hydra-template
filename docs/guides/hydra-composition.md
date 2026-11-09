@@ -41,7 +41,7 @@ defaults:
 
 task_name: burgers_grad_norm_1d
 tags: [burgers, grad_norm]
-seed: 42
+seed: 12345
 ```
 
 Run it with:

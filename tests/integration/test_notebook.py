@@ -24,6 +24,7 @@ def test_burgers_notebook_is_clean_and_compilable() -> None:
     assert "model.net.hidden=" not in notebook_source
     assert "trainer.max_steps=" not in notebook_source
     assert '"callbacks.model_checkpoint.every_n_steps=null"' in notebook_source
+    assert "DETERMINISTIC_GPU = False" in notebook_source
     assert "--xla_gpu_exclude_nondeterministic_ops --xla_gpu_autotune_level=0" in notebook_source
     assert "~callbacks.lr_monitor" not in notebook_source
     assert "subprocess.Popen" in notebook_source

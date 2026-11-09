@@ -41,8 +41,9 @@ uv sync --locked --extra jupyter
 uv run --no-sync jupyter lab notebooks/burgers_example.ipynb
 ```
 
-The notebook uses the same Hydra entrypoints and 5,000-step Burgers experiment as the command-line workflow. It enables
-deterministic XLA options, saves the final checkpoint, and writes each run under `logs/`.
+The notebook uses the same Hydra entrypoints and 5,000-step Burgers experiment as the command-line workflow. It saves the
+final checkpoint and writes each run under `logs/`. Set `DETERMINISTIC_GPU = True` in its setup cell to enable the
+[deterministic XLA options](#deterministic-gpu-execution).
 
 You can also open it directly in Google Colab:
 
@@ -125,9 +126,10 @@ hyperparameters and scalar metrics below the run's `phijax_logs/version_0/` dire
 ## Run the full reference experiment
 
 ```bash
-XLA_FLAGS="--xla_gpu_exclude_nondeterministic_ops --xla_gpu_autotune_level=0" \
-  phijax-train experiment=burgers_grad_norm_1d
+phijax-train experiment=burgers_grad_norm_1d
 ```
+
+To repeat a GPU run exactly, add the options from [Deterministic GPU execution](#deterministic-gpu-execution).
 
 The DataModule creates the Burgers reference file when it is missing. The experiment uses the settings in
 `configs/experiment/burgers_grad_norm_1d.yaml`.
